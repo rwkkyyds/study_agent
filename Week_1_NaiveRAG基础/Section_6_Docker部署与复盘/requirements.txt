@@ -1,0 +1,8 @@
+fastapi==0.136.3
+uvicorn==0.48.0
+langchain-openai==1.2.2
+langchain-core==1.4.0
+langchain-text-splitters==0.3.11
+faiss-cpu==1.14.2
+numpy>=1.25
+pydantic>=2.7

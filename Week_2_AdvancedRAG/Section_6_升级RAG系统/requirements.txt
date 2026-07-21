@@ -1,0 +1,8 @@
+pdfplumber
+pymilvus
+fastembed
+langchain-openai
+rank_bm25
+sentence-transformers
+reportlab
+numpy
