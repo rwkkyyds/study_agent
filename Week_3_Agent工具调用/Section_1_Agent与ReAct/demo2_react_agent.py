@@ -1,8 +1,10 @@
-﻿"""
-Demo2: ReAct Agent 瀹屾暣鎺ㄧ悊寰幆
-鍔熻兘锛氬畾涔夊伐鍏?鈫?鍒涘缓 ReAct Agent 鈫?杩愯鎺ㄧ悊寰幆
-鏍稿績锛氱悊瑙?Thought 鈫?Action 鈫?Observation 鐨勫惊鐜帹鐞嗚繃绋?渚濊禆锛歭angchain-openai, langchain锛堝凡鏈夛級
-娉ㄦ剰锛歭angchain 1.3.x 浣跨敤 create_agent 鏂?API锛堝熀浜?langgraph锛?鍓嶇疆锛氬厛杩愯 demo1_tool_basics.py 鐞嗚В宸ュ叿瀹氫箟
+"""
+Demo2: ReAct Agent 完整推理循环
+功能：定义工具 → 创建 ReAct Agent → 运行推理循环
+核心：理解 Thought → Action → Observation 的循环推理过程
+依赖：langchain-openai, langchain（已有）
+注意：langchain 1.3.x 使用 create_agent 新 API（基于 langgraph）
+前置：先运行 demo1_tool_basics.py 理解工具定义
 """
 
 import sys
@@ -15,37 +17,41 @@ from langchain_core.tools import tool
 from langchain.agents import create_agent
 
 
-# ========== 閰嶇疆 ==========
-ZHIPU_API_KEY = __import__("os").environ.get("ZHIPU_API_KEY")
+# ========== 配置 ==========
+ZHIPU_API_KEY = "70041ddde9824461bfb02fac3f469fc3.pDZCoxOgkovIx1vT"
 ZHIPU_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/"
 
 
-# ========== 1. 瀹氫箟宸ュ叿 ==========
-# @tool 瑁呴グ鍣ㄥ皢鏅€氬嚱鏁拌浆涓?Agent 鍙皟鐢ㄧ殑宸ュ叿
-# docstring 闈炲父閲嶈锛欰gent 鏍规嵁瀹冩潵鍐冲畾浣曟椂璋冪敤杩欎釜宸ュ叿
+# ========== 1. 定义工具 ==========
+# @tool 装饰器将普通函数转为 Agent 可调用的工具
+# docstring 非常重要：Agent 根据它来决定何时调用这个工具
 
 @tool
 def calculator(expression: str) -> str:
-    """璁＄畻鏁板琛ㄨ揪寮忋€傛敮鎸佸姞鍑忎箻闄ゃ€佸箓杩愮畻銆佸紑鏂圭瓑銆?    杈撳叆绀轰緥: "2 + 3 * 4", "sqrt(16)", "2 ** 10"
+    """计算数学表达式。支持加减乘除、幂运算、开方等。
+    输入示例: "2 + 3 * 4", "sqrt(16)", "2 ** 10"
     """
     try:
-        # 瀹夊叏鐨勬暟瀛︽眰鍊硷細鍙厑璁?math 妯″潡涓殑鍑芥暟
+        # 安全的数学求值：只允许 math 模块中的函数
         allowed = {k: v for k, v in math.__dict__.items() if not k.startswith("_")}
         result = eval(expression, {"__builtins__": {}}, allowed)
         return str(result)
     except Exception as e:
-        return f"璁＄畻閿欒: {e}"
+        return f"计算错误: {e}"
 
 
 @tool
 def knowledge_base(query: str) -> str:
-    """鏌ヨ鍐呴儴鐭ヨ瘑搴擄紝鑾峰彇鎶€鏈枃妗ｃ€佷骇鍝佷俊鎭瓑銆?    褰撶敤鎴烽棶鍒版妧鏈蹇碉紙濡?RAG銆丄gent銆丷eAct銆丮ilvus锛夋椂浣跨敤姝ゅ伐鍏枫€?    """
-    # 妯℃嫙鐭ヨ瘑搴擄紙鐢熶骇鐜涓鎺?RAG 鎴栨暟鎹簱锛?    kb = {
-        "rag": "RAG锛堟绱㈠寮虹敓鎴愶級= 妫€绱㈠閮ㄧ煡璇?+ LLM 鐢熸垚鍥炵瓟銆傛牳蹇冪粍浠讹細鏂囨。瑙ｆ瀽銆佸悜閲忓寲銆佸悜閲忓簱銆佹绱€侀噸鎺掋€佺敓鎴愩€?,
-        "agent": "Agent = LLM锛堝ぇ鑴戯級+ Tools锛堟墜鑴氾級+ 鎺ㄧ悊寰幆銆傛牳蹇冭兘鍔涳細鑷富鍐崇瓥璋冪敤鍝釜宸ュ叿銆佹寜浠€涔堥『搴忚皟鐢ㄣ€?,
-        "react": "ReAct = Reasoning + Acting銆傛瘡涓€姝ワ細Thought锛堟€濊€冿級鈫?Action锛堣鍔級鈫?Observation锛堣瀵燂級锛屽惊鐜洿鍒板畬鎴愪换鍔°€?,
-        "milvus": "Milvus 鏄敓浜х骇鍚戦噺鏁版嵁搴擄紝鏀寔鍗佷嚎绾у悜閲忔绱紝Docker 閮ㄧ讲锛孒NSW 绱㈠紩銆?,
-        "langchain": "LangChain 鏄?LLM 搴旂敤寮€鍙戞鏋讹紝鏍稿績缁勪欢锛歅rompt Template銆丱utput Parser銆丩CEL 閾捐矾銆丄gent銆乀ools銆?,
+    """查询内部知识库，获取技术文档、产品信息等。
+    当用户问到技术概念（如 RAG、Agent、ReAct、Milvus）时使用此工具。
+    """
+    # 模拟知识库（生产环境中对接 RAG 或数据库）
+    kb = {
+        "rag": "RAG（检索增强生成）= 检索外部知识 + LLM 生成回答。核心组件：文档解析、向量化、向量库、检索、重排、生成。",
+        "agent": "Agent = LLM（大脑）+ Tools（手脚）+ 推理循环。核心能力：自主决策调用哪个工具、按什么顺序调用。",
+        "react": "ReAct = Reasoning + Acting。每一步：Thought（思考）→ Action（行动）→ Observation（观察），循环直到完成任务。",
+        "milvus": "Milvus 是生产级向量数据库，支持十亿级向量检索，Docker 部署，HNSW 索引。",
+        "langchain": "LangChain 是 LLM 应用开发框架，核心组件：Prompt Template、Output Parser、LCEL 链路、Agent、Tools。",
     }
     query_lower = query.lower()
     results = []
@@ -54,26 +60,30 @@ def knowledge_base(query: str) -> str:
             results.append(value)
     if results:
         return "\n".join(results)
-    return f"鐭ヨ瘑搴撲腑鏈壘鍒颁笌 '{query}' 鐩稿叧鐨勪俊鎭€?
+    return f"知识库中未找到与 '{query}' 相关的信息。"
 
 
 @tool
 def get_current_time() -> str:
-    """鑾峰彇褰撳墠鏃ユ湡鍜屾椂闂淬€傚綋鐢ㄦ埛闂?鐜板湪鍑犵偣'銆?浠婂ぉ鍑犲彿'鏃朵娇鐢ㄣ€?""
+    """获取当前日期和时间。当用户问'现在几点'、'今天几号'时使用。"""
     from datetime import datetime
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-# ========== 2. 鍒涘缓 Agent ==========
+# ========== 2. 创建 Agent ==========
 def create_react_agent_demo():
     """
-    鍒涘缓 ReAct Agent锛坙angchain 1.3.x 鏂?API锛夛細
-    - model锛歀LM锛堝ぇ鑴戯級
-    - tools锛氬伐鍏峰垪琛紙鎵嬭剼锛?    - system_prompt锛氳涓烘寚瀵?
-    鍐呴儴鑷姩澶勭悊锛?    - ReAct 鎺ㄧ悊寰幆锛圱hought 鈫?Action 鈫?Observation锛?    - 宸ュ叿璋冪敤瑙ｆ瀽
-    - 寰幆缁堟鏉′欢锛圓gent 鍐冲畾涓嶅啀璋冪敤宸ュ叿鏃跺仠姝級
+    创建 ReAct Agent（langchain 1.3.x 新 API）：
+    - model：LLM（大脑）
+    - tools：工具列表（手脚）
+    - system_prompt：行为指导
+
+    内部自动处理：
+    - ReAct 推理循环（Thought → Action → Observation）
+    - 工具调用解析
+    - 循环终止条件（Agent 决定不再调用工具时停止）
     """
-    # LLM锛堝ぇ鑴戯級
+    # LLM（大脑）
     llm = ChatOpenAI(
         api_key=ZHIPU_API_KEY,
         base_url=ZHIPU_BASE_URL,
@@ -81,21 +91,22 @@ def create_react_agent_demo():
         temperature=0,
     )
 
-    # 宸ュ叿鍒楄〃锛堟墜鑴氾級
+    # 工具列表（手脚）
     tools = [calculator, knowledge_base, get_current_time]
 
-    # System Prompt锛氭寚瀵?Agent 鐨勮涓烘ā寮?    system_prompt = (
-        "浣犳槸涓€涓櫤鑳藉姪鎵嬶紝鍙互浣跨敤宸ュ叿鏉ュ洖绛旈棶棰樸€俓n"
-        "鍙敤宸ュ叿锛氳绠楀櫒(calculator)銆佺煡璇嗗簱鏌ヨ(knowledge_base)銆佹椂闂存煡璇?get_current_time)\n\n"
-        "璇锋寜浠ヤ笅姝ラ鎬濊€冿細\n"
-        "1. 鍒嗘瀽鐢ㄦ埛闂锛屽垽鏂槸鍚﹂渶瑕佽皟鐢ㄥ伐鍏穃n"
-        "2. 濡傛灉闇€瑕侊紝閫夋嫨鍚堥€傜殑宸ュ叿骞惰皟鐢╘n"
-        "3. 鏍规嵁宸ュ叿杩斿洖鐨勭粨鏋滐紝缁х画鎬濊€冩垨缁欏嚭鏈€缁堝洖绛擻n"
-        "4. 涓嶈缂栭€犱俊鎭紝璇ョ敤宸ュ叿鏃跺繀椤荤敤宸ュ叿"
+    # System Prompt：指导 Agent 的行为模式
+    system_prompt = (
+        "你是一个智能助手，可以使用工具来回答问题。\n"
+        "可用工具：计算器(calculator)、知识库查询(knowledge_base)、时间查询(get_current_time)\n\n"
+        "请按以下步骤思考：\n"
+        "1. 分析用户问题，判断是否需要调用工具\n"
+        "2. 如果需要，选择合适的工具并调用\n"
+        "3. 根据工具返回的结果，继续思考或给出最终回答\n"
+        "4. 不要编造信息，该用工具时必须用工具"
     )
 
-    # create_agent锛氫竴琛屼唬鐮佸垱寤哄畬鏁寸殑 ReAct Agent
-    # 杩斿洖鐨勬槸 CompiledStateGraph锛屽彲鐩存帴 invoke
+    # create_agent：一行代码创建完整的 ReAct Agent
+    # 返回的是 CompiledStateGraph，可直接 invoke
     agent = create_agent(
         model=llm,
         tools=tools,
@@ -105,48 +116,50 @@ def create_react_agent_demo():
     return agent
 
 
-# ========== 3. 杩愯娴嬭瘯 ==========
+# ========== 3. 运行测试 ==========
 def run_demo():
-    """杩愯 Agent Demo锛屽睍绀?ReAct 鎺ㄧ悊杩囩▼"""
+    """运行 Agent Demo，展示 ReAct 推理过程"""
     agent = create_react_agent_demo()
 
     questions = [
-        # 闇€瑕佽皟鐢ㄥ伐鍏风殑闂
-        "璁＄畻涓€涓?(15 * 8 + 120) / 4 绛変簬澶氬皯锛?,
-        # 闇€瑕佹煡璇㈢煡璇嗗簱鐨勯棶棰?        "浠€涔堟槸 RAG锛熷畠鍜?Agent 鏈変粈涔堝尯鍒紵",
-        # 闇€瑕佺粍鍚堝涓伐鍏风殑闂
-        "鐜板湪鍑犵偣浜嗭紵鍙﹀甯垜绠椾竴涓?2 鐨?20 娆℃柟鏄灏戯紵",
+        # 需要调用工具的问题
+        "计算一下 (15 * 8 + 120) / 4 等于多少？",
+        # 需要查询知识库的问题
+        "什么是 RAG？它和 Agent 有什么区别？",
+        # 需要组合多个工具的问题
+        "现在几点了？另外帮我算一下 2 的 20 次方是多少？",
     ]
 
     for i, q in enumerate(questions):
         print(f"\n{'=' * 60}")
-        print(f"闂 {i+1}: {q}")
+        print(f"问题 {i+1}: {q}")
         print(f"{'=' * 60}")
 
         try:
-            # invoke 浼犲叆娑堟伅鍒楄〃锛孉gent 鑷姩鎵ц鎺ㄧ悊寰幆
+            # invoke 传入消息列表，Agent 自动执行推理循环
             result = agent.invoke({"messages": [("human", q)]})
-            # 鏈€鍚庝竴鏉℃秷鎭槸 Agent 鐨勬渶缁堝洖绛?            final_message = result["messages"][-1]
-            print(f"\n[鏈€缁堝洖绛擼 {final_message.content}")
+            # 最后一条消息是 Agent 的最终回答
+            final_message = result["messages"][-1]
+            print(f"\n[最终回答] {final_message.content}")
         except Exception as e:
             print(f"\n[ERROR] {e}")
             import traceback
             traceback.print_exc()
 
     print(f"\n{'=' * 60}")
-    print("[OK] Agent Demo 瀹屾垚锛?)
-    print("鏍稿績鏀惰幏锛?)
-    print("  1. Agent = LLM + Tools + 鎺ㄧ悊寰幆")
-    print("  2. ReAct锛歍hought 鈫?Action 鈫?Observation 寰幆")
-    print("  3. @tool 瑁呴グ鍣ㄥ畾涔夊伐鍏凤紝docstring 鏄?Agent 鍐崇瓥渚濇嵁")
-    print("  4. create_agent 涓€琛屼唬鐮佸垱寤哄畬鏁?Agent")
+    print("[OK] Agent Demo 完成！")
+    print("核心收获：")
+    print("  1. Agent = LLM + Tools + 推理循环")
+    print("  2. ReAct：Thought → Action → Observation 循环")
+    print("  3. @tool 装饰器定义工具，docstring 是 Agent 决策依据")
+    print("  4. create_agent 一行代码创建完整 Agent")
 
 
-# ========== 涓诲嚱鏁?==========
+# ========== 主函数 ==========
 if __name__ == "__main__":
     try:
         run_demo()
     except Exception as e:
         print(f"\n[ERROR] {e}")
-        import traceback # 鎵撳嵃瀹屾暣閿欒鍫嗘爤锛屾柟渚胯皟璇?        traceback.print_exc()
-
+        import traceback # 打印完整错误堆栈，方便调试
+        traceback.print_exc()

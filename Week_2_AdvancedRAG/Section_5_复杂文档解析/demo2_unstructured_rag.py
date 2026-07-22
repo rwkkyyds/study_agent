@@ -1,9 +1,9 @@
-﻿"""
-Demo2: 澶嶆潅鏂囨。瑙ｆ瀽 + RAG 闆嗘垚
-鍔熻兘锛歅DF瑙ｆ瀽(鎸夊厓绱犵被鍨? 鈫?琛ㄦ牸/鏂囨湰鍒嗙 鈫?鍒嗗潡 鈫?Milvus 鈫?RAG闂瓟
-鏍稿績锛氳〃鏍兼暣浣撲繚鐣欎笉鍒囩锛岃浆Markdown渚汱LM鐞嗚В
-渚濊禆锛歱ip install reportlab pdfplumber pymilvus fastembed langchain-openai
-鍓嶆彁锛歞ocker compose up -d 鍚姩 Milvus 鏈嶅姟
+"""
+Demo2: 复杂文档解析 + RAG 集成
+功能：PDF解析(按元素类型) → 表格/文本分离 → 分块 → Milvus → RAG问答
+核心：表格整体保留不切碎，转Markdown供LLM理解
+依赖：pip install reportlab pdfplumber pymilvus fastembed langchain-openai
+前提：docker compose up -d 启动 Milvus 服务
 """
 
 import sys
@@ -27,18 +27,18 @@ from fastembed import TextEmbedding
 from pymilvus import MilvusClient, DataType, CollectionSchema, FieldSchema
 
 
-# ========== 閰嶇疆 ==========
+# ========== 配置 ==========
 DEMO_DIR = Path(__file__).parent / "demo_files"
 PDF_PATH = DEMO_DIR / "sample_rag_doc.pdf"
 MILVUS_URI = "http://localhost:19530"
 COLLECTION_NAME = "demo_rag_parsed_doc"
 EMBEDDING_MODEL = "BAAI/bge-small-zh-v1.5"
 VECTOR_DIM = 512
-ZHIPU_API_KEY = __import__("os").environ.get("ZHIPU_API_KEY")
+ZHIPU_API_KEY = "70041ddde9824461bfb02fac3f469fc3.pDZCoxOgkovIx1vT"
 ZHIPU_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/"
 
 
-# ========== 鍏冪礌绫诲瀷 ==========
+# ========== 元素类型 ==========
 @dataclass
 class Element:
     text: str
@@ -55,9 +55,9 @@ class Table(Element):
 class ListItem(Element): pass
 
 
-# ========== 1. PDF 鎸夊厓绱犵被鍨嬭В鏋?==========
+# ========== 1. PDF 按元素类型解析 ==========
 def partition_pdf(filename: str) -> list[Element]:
-    """鎸夊厓绱犵被鍨嬭В鏋?PDF锛堝鏍?Unstructured partition_pdf锛?""
+    """按元素类型解析 PDF（对标 Unstructured partition_pdf）"""
     elements = []
     with pdfplumber.open(filename) as pdf:
         for page_num, page in enumerate(pdf.pages):
@@ -70,7 +70,7 @@ def partition_pdf(filename: str) -> list[Element]:
                     line = line.strip()
                     if not line:
                         continue
-                    if line.endswith("锛?) or line.endswith(":") or line.startswith(("涓€銆?, "浜屻€?, "涓夈€?)):
+                    if line.endswith("：") or line.endswith(":") or line.startswith(("一、", "二、", "三、")):
                         new_type = "heading"
                     elif any(line.startswith(f"{i}.") for i in range(1, 10)):
                         new_type = "list"
@@ -115,30 +115,31 @@ def _table_to_html(table):
     return "\n".join(html)
 
 
-# ========== 2. 鍏冪礌杞?RAG 鏂囨。 ==========
+# ========== 2. 元素转 RAG 文档 ==========
 def elements_to_documents(elements: list[Element]) -> list[Document]:
-    """灏嗚В鏋愬厓绱犺浆涓?LangChain Document锛岃〃鏍兼暣浣撲繚鐣?""
+    """将解析元素转为 LangChain Document，表格整体保留"""
     docs = []
     for elem in elements:
         content = elem.text
         metadata = {**elem.metadata, "type": type(elem).__name__}
         if isinstance(elem, Table):
-            content = f"[琛ㄦ牸鏁版嵁]\n{content}\n[琛ㄦ牸缁撴潫]"
+            content = f"[表格数据]\n{content}\n[表格结束]"
         docs.append(Document(page_content=content, metadata=metadata))
-    print(f"[OK] 宸插噯澶?{len(docs)} 涓?RAG 鏂囨。")
+    print(f"[OK] 已准备 {len(docs)} 个 RAG 文档")
     return docs
 
 
 # ========== 3. Embedding + VectorStore ==========
-class FastEmbedEmbeddings(Embeddings):   #灏佽 FastEmbed 鐨勬枃鏈祵鍏ユ帴鍙ｏ紝閫傞厤 LangChain Embeddings 鎺ュ彛
+class FastEmbedEmbeddings(Embeddings):   #封装 FastEmbed 的文本嵌入接口，适配 LangChain Embeddings 接口
     def __init__(self, model_name):
         super().__init__()
         self.model = TextEmbedding(model_name)
     def embed_documents(self, texts):
-        return [list(v) for v in self.model.embed(texts)] #杩斿洖涓€涓簩缁村垪琛紝姣忎釜瀛愬垪琛ㄦ槸瀵瑰簲鏂囨湰鐨勫悜閲忚〃绀?    def embed_query(self, text):
-        return list(list(self.model.embed([text]))[0]) #杩斿洖涓€涓竴缁村垪琛紝鏄煡璇㈡枃鏈殑鍚戦噺琛ㄧず
+        return [list(v) for v in self.model.embed(texts)] #返回一个二维列表，每个子列表是对应文本的向量表示
+    def embed_query(self, text):
+        return list(list(self.model.embed([text]))[0]) #返回一个一维列表，是查询文本的向量表示
 
-class MilvusVectorStore(VectorStore):  # 灏佽 Milvus 鍚戦噺搴撶殑鎺ュ彛锛岄€傞厤 LangChain VectorStore 鎺ュ彛 鏈塧s_retriever鏂规硶鍙互鐩存帴杞负 LangChain Retriever鎺ュ彛
+class MilvusVectorStore(VectorStore):  # 封装 Milvus 向量库的接口，适配 LangChain VectorStore 接口 有as_retriever方法可以直接转为 LangChain Retriever接口
     def __init__(self, client, collection_name, embedding):
         self.client = client
         self.collection_name = collection_name
@@ -146,7 +147,7 @@ class MilvusVectorStore(VectorStore):  # 灏佽 Milvus 鍚戦噺搴撶殑鎺�
 
     @classmethod
     def from_texts(cls, texts, embedding, metadatas=None, collection_name="default", **kwargs): 
-        #鏍规嵁鏂囨湰鍒楄〃鍒涘缓 Milvus 鍚戦噺搴撳疄渚嬶紝鍏堝垱寤洪泦鍚堝拰绱㈠紩锛屽啀鎵归噺鎻掑叆鏁版嵁
+        #根据文本列表创建 Milvus 向量库实例，先创建集合和索引，再批量插入数据
         client = MilvusClient(uri=kwargs.get("uri", MILVUS_URI))
         if client.has_collection(collection_name):
             client.drop_collection(collection_name)
@@ -167,7 +168,7 @@ class MilvusVectorStore(VectorStore):  # 灏佽 Milvus 鍚戦噺搴撶殑鎺�
         data = [{"text": t, "vector": v, "metadata": m} for t, v, m in zip(texts, vectors, metadatas)]
         client.insert(collection_name=collection_name, data=data)
         client.load_collection(collection_name)
-        print(f"[OK] Milvus 鍚戦噺搴撳氨缁? {collection_name}, {len(texts)} 鏉?)
+        print(f"[OK] Milvus 向量库就绪: {collection_name}, {len(texts)} 条")
         return cls(client=client, collection_name=collection_name, embedding=embedding)
 
     @classmethod
@@ -192,9 +193,9 @@ class MilvusVectorStore(VectorStore):  # 灏佽 Milvus 鍚戦噺搴撶殑鎺�
         data = [{"text": t, "vector": v, "metadata": m} for t, v, m in zip(texts, vectors, metadatas)]
         client.insert(collection_name=collection_name, data=data)
         client.load_collection(collection_name)
-        print(f"[OK] Milvus 鍚戦噺搴撳氨缁? {collection_name}, {len(documents)} 鏉?)
+        print(f"[OK] Milvus 向量库就绪: {collection_name}, {len(documents)} 条")
         return cls(client=client, collection_name=collection_name, embedding=embedding) 
-        #杩斿洖鐨勬槸涓€涓?MilvusVectorStore 瀹炰緥锛屽皝瑁呬簡 Milvus 鐨勬绱㈡帴鍙? 鏈塧s_retriever鏂规硶鍙互鐩存帴杞负 LangChain Retriever鎺ュ彛
+        #返回的是一个 MilvusVectorStore 实例，封装了 Milvus 的检索接口, 有as_retriever方法可以直接转为 LangChain Retriever接口
 
     def similarity_search(self, query, k=4, **kwargs):
         qv = self.embedding.embed_query(query)
@@ -205,63 +206,64 @@ class MilvusVectorStore(VectorStore):  # 灏佽 Milvus 鍚戦噺搴撶殑鎺�
                          metadata=hit["entity"].get("metadata", {})) for hit in results[0]]
 
 
-# ========== 4. RAG 閾捐矾 ==========
+# ========== 4. RAG 链路 ==========
 def build_rag_chain(vectorstore):
-    retriever = vectorstore.as_retriever(search_kwargs={"k": 3}) #杩斿洖鏍煎紡 eg: [Document(page_content='[琛ㄦ牸鏁版嵁]\n| 鍚戦噺鏁版嵁搴?| 閫傜敤鍦烘櫙 |\n| --- | --- |\n| Milvus | 澶ц妯″悜閲忔绱?|\n| FAISS | 鏈湴灏忚妯℃绱?|\n[琛ㄦ牸缁撴潫]', metadata={'page': 2, 'type': 'Table'})]
-    #杩斿洖涓€涓?Retriever 瀹炰緥锛屽皝瑁呬簡 Milvus 鐨勬绱㈡帴鍙ｏ紝璋冪敤 retriever.invoke(query) 灏变細杩斿洖鐩稿叧鏂囨。鍒楄〃
+    retriever = vectorstore.as_retriever(search_kwargs={"k": 3}) #返回格式 eg: [Document(page_content='[表格数据]\n| 向量数据库 | 适用场景 |\n| --- | --- |\n| Milvus | 大规模向量检索 |\n| FAISS | 本地小规模检索 |\n[表格结束]', metadata={'page': 2, 'type': 'Table'})]
+    #返回一个 Retriever 实例，封装了 Milvus 的检索接口，调用 retriever.invoke(query) 就会返回相关文档列表
     prompt = ChatPromptTemplate.from_template(
-        "浣犳槸鎶€鏈垎鏋愬姪鎵嬨€傛牴鎹弬鑰冭祫鏂欏洖绛旈棶棰樸€俓n"
-        "濡傛灉鍙傝€冭祫鏂欏寘鍚〃鏍兼暟鎹紝璇峰熀浜庤〃鏍艰繘琛屽姣斿垎鏋愩€俓n"
-        "濡傛灉淇℃伅涓嶈冻锛屾槑纭鏄庛€俓n\n"
-        "鍙傝€冭祫鏂?\n{context}\n\n"
-        "闂: {question}\n\n"
-        "鍥炵瓟锛?)
+        "你是技术分析助手。根据参考资料回答问题。\n"
+        "如果参考资料包含表格数据，请基于表格进行对比分析。\n"
+        "如果信息不足，明确说明。\n\n"
+        "参考资料:\n{context}\n\n"
+        "问题: {question}\n\n"
+        "回答：")
     llm = ChatOpenAI(api_key=ZHIPU_API_KEY, base_url=ZHIPU_BASE_URL, model="glm-4-flash", temperature=0.7)
-    def format_docs(docs): #docs鏄摢閲屼紶杩囨潵鐨勶紵 涓嬮潰鐨?chain 瀹氫箟閲?retriever | format_docs 灏辨槸璇村厛璋冪敤 retriever.invoke(question) 寰楀埌 docs 鍒楄〃锛屽啀浼犵粰 format_docs 杩涜鏍煎紡鍖?        parts = []
+    def format_docs(docs): #docs是哪里传过来的？ 下面的 chain 定义里 retriever | format_docs 就是说先调用 retriever.invoke(question) 得到 docs 列表，再传给 format_docs 进行格式化
+        parts = []
         for i, d in enumerate(docs):  
-            tag = "[琛ㄦ牸]" if d.metadata.get("type") == "Table" else "[鏂囨湰]"
-            parts.append(f"鐗囨{i+1} {tag}:\n{d.page_content}")
-        return "\n\n".join(parts) #灏嗘绱㈠埌鐨勬枃妗ｅ垪琛ㄦ牸寮忓寲鎴愪竴涓瓧绗︿覆锛岃〃鏍煎墠浼氭湁[琛ㄦ牸]鏍囩锛屾枃鏈墠浼氭湁[鏂囨湰]鏍囩锛屼究浜庢彁绀鸿瘝鍖哄垎
+            tag = "[表格]" if d.metadata.get("type") == "Table" else "[文本]"
+            parts.append(f"片段{i+1} {tag}:\n{d.page_content}")
+        return "\n\n".join(parts) #将检索到的文档列表格式化成一个字符串，表格前会有[表格]标签，文本前会有[文本]标签，便于提示词区分
     chain = ({"context": retriever | format_docs, "question": RunnablePassthrough()} | prompt | llm | StrOutputParser())
     return chain, retriever
 
 
-# ========== 5. 娴嬭瘯 ==========
+# ========== 5. 测试 ==========
 def run_test(chain, retriever):
     questions = [
-        "鏈夊摢浜涘悜閲忔暟鎹簱锛熷畠浠湁浠€涔堝尯鍒紵",
-        "RAG 绯荤粺鍖呭惈鍝簺鐜妭锛?,
-        "Milvus 鐨勬渶澶ф暟鎹妯℃槸澶氬皯锛?,
+        "有哪些向量数据库？它们有什么区别？",
+        "RAG 系统包含哪些环节？",
+        "Milvus 的最大数据规模是多少？",
     ]
     for i, q in enumerate(questions):
         print(f"\n{'=' * 60}")
-        print(f"闂 {i+1}: {q}")
+        print(f"问题 {i+1}: {q}")
         print(f"{'=' * 60}")
         docs = retriever.invoke(q)
-        print(f"妫€绱㈠埌 {len(docs)} 涓墖娈?")
+        print(f"检索到 {len(docs)} 个片段:")
         for j, d in enumerate(docs):
-            tag = "[琛ㄦ牸]" if d.metadata.get("type") == "Table" else "[鏂囨湰]"
+            tag = "[表格]" if d.metadata.get("type") == "Table" else "[文本]"
             print(f"  [{j+1}] {tag} {d.page_content[:80]}...")
-        print(f"\n鍥炵瓟:\n  {chain.invoke(q)}")
+        print(f"\n回答:\n  {chain.invoke(q)}")
 
 
-# ========== 涓诲嚱鏁?==========
+# ========== 主函数 ==========
 if __name__ == "__main__":
     try:
-        elements = partition_pdf(str(PDF_PATH)) # 瑙ｆ瀽 PDF锛屽緱鍒颁竴涓?Element 瀵硅薄鍒楄〃锛屾瘡涓璞″寘鍚簡鏂囨湰鍐呭鍜屽厓鏁版嵁锛堝椤电爜銆佽〃鏍艰鍒楁暟绛夛級
-        documents = elements_to_documents(elements) # 灏?Element 瀵硅薄鍒楄〃杞负 LangChain Document 鍒楄〃锛岃〃鏍兼暣浣撲繚鐣欏苟鏍囪 type=Table
+        elements = partition_pdf(str(PDF_PATH)) # 解析 PDF，得到一个 Element 对象列表，每个对象包含了文本内容和元数据（如页码、表格行列数等）
+        documents = elements_to_documents(elements) # 将 Element 对象列表转为 LangChain Document 列表，表格整体保留并标记 type=Table
         embeddings = FastEmbedEmbeddings(EMBEDDING_MODEL)
         vs = MilvusVectorStore.from_documents(documents, embeddings, collection_name=COLLECTION_NAME, uri=MILVUS_URI) 
-        # 灏?Document 鍒楄〃瀛樺叆 Milvus 鍚戦噺搴擄紝鍒涘缓闆嗗悎鍜岀储寮?杩斿洖鐨剉s鏄竴涓?MilvusVectorStore 瀹炰緥锛屽皝瑁呬簡 Milvus 鐨勬绱㈡帴鍙?        chain, retriever = build_rag_chain(vs)
+        # 将 Document 列表存入 Milvus 向量库，创建集合和索引 返回的vs是一个 MilvusVectorStore 实例，封装了 Milvus 的检索接口
+        chain, retriever = build_rag_chain(vs)
         run_test(chain, retriever)
         print(f"\n{'=' * 60}")
-        print("[OK] 澶嶆潅鏂囨。瑙ｆ瀽 + RAG 闆嗘垚婕旂ず瀹屾垚锛?)
-        print("鏍稿績鏀惰幏锛?)
-        print("  1. 鎸夊厓绱犵被鍨嬭В鏋愶紝琛ㄦ牸鏁翠綋淇濈暀涓嶅垏纰?)
-        print("  2. 琛ㄦ牸杞?Markdown 淇濈暀缁撴瀯锛孡LM 鑳界悊瑙ｅ苟鍋氬姣斿垎鏋?)
-        print("  3. 鍏冩暟鎹爣璁?type=Table 渚夸簬妫€绱㈡椂鍖哄垎")
+        print("[OK] 复杂文档解析 + RAG 集成演示完成！")
+        print("核心收获：")
+        print("  1. 按元素类型解析，表格整体保留不切碎")
+        print("  2. 表格转 Markdown 保留结构，LLM 能理解并做对比分析")
+        print("  3. 元数据标记 type=Table 便于检索时区分")
     except Exception as e:
         print(f"\n[ERROR] {e}")
         import traceback
         traceback.print_exc()
-

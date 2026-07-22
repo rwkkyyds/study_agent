@@ -1,10 +1,10 @@
-﻿"""
-Demo2: Milvus + LangChain RAG 闆嗘垚锛堟墜鍐?VectorStore 閫傞厤鍣級
-鍔熻兘锛氭枃妗ｅ垎鍧?鈫?Embedding 鈫?瀛樺叆 Milvus 鈫?LangChain 妫€绱㈤摼 鈫?GLM 鍥炵瓟
-鏁版嵁娴侊細Documents 鈫?bge-small-zh Embedding 鈫?Milvus 鈫?Retriever 鈫?Prompt 鈫?GLM 鈫?鍥炵瓟
-渚濊禆锛歱ip install pymilvus langchain langchain-community langchain-openai fastembed
-鍓嶆彁锛歞ocker compose up -d 鍚姩 Milvus 鏈嶅姟
-瀛︿範浠峰€硷細鐞嗚В LangChain VectorStore 鎺ュ彛鐨勬湰璐紙灏辨槸涓€涓甫 search 鐨勫瓨鍌級
+"""
+Demo2: Milvus + LangChain RAG 集成（手写 VectorStore 适配器）
+功能：文档分块 → Embedding → 存入 Milvus → LangChain 检索链 → GLM 回答
+数据流：Documents → bge-small-zh Embedding → Milvus → Retriever → Prompt → GLM → 回答
+依赖：pip install pymilvus langchain langchain-community langchain-openai fastembed
+前提：docker compose up -d 启动 Milvus 服务
+学习价值：理解 LangChain VectorStore 接口的本质（就是一个带 search 的存储）
 """
 
 import sys
@@ -22,25 +22,27 @@ from fastembed import TextEmbedding
 from pymilvus import MilvusClient, DataType, CollectionSchema, FieldSchema
 
 
-# ========== 閰嶇疆 ==========
+# ========== 配置 ==========
 MILVUS_URI = "http://localhost:19530"
 COLLECTION_NAME = "demo_rag_langchain"
 EMBEDDING_MODEL = "BAAI/bge-small-zh-v1.5"
 VECTOR_DIM = 512
-ZHIPU_API_KEY = __import__("os").environ.get("ZHIPU_API_KEY")
+ZHIPU_API_KEY = "70041ddde9824461bfb02fac3f469fc3.pDZCoxOgkovIx1vT"
 ZHIPU_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/"
 
 
-# ========== 1. FastEmbed 閫傞厤鍣紙灏佽涓?LangChain Embeddings 鎺ュ彛锛?==========
+# ========== 1. FastEmbed 适配器（封装为 LangChain Embeddings 接口） ==========
 class FastEmbedEmbeddings(Embeddings):
     """
-    灏?fastembed 灏佽涓?LangChain 鐨?Embeddings 鎺ュ彛銆?    LangChain 瑕佹眰瀹炵幇涓や釜鏂规硶锛?    - embed_documents(texts): 鎵归噺宓屽叆鏂囨。
-    - embed_query(text): 宓屽叆鍗曟潯鏌ヨ
+    将 fastembed 封装为 LangChain 的 Embeddings 接口。
+    LangChain 要求实现两个方法：
+    - embed_documents(texts): 批量嵌入文档
+    - embed_query(text): 嵌入单条查询
     """
     def __init__(self, model_name: str):
         super().__init__()
         self.model = TextEmbedding(model_name)
-        print(f"[OK] Embedding 妯″瀷宸插姞杞? {model_name}")
+        print(f"[OK] Embedding 模型已加载: {model_name}")
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         vectors = list(self.model.embed(texts))
@@ -48,17 +50,23 @@ class FastEmbedEmbeddings(Embeddings):
 
     def embed_query(self, text: str) -> list[float]:
         return list(list(self.model.embed([text]))[0]) 
-        #eg: self.model.embed([text]) 杩斿洖 [[vector]]锛岄渶瑕佸彇绗竴琛?[0]锛屽啀杞垚 list
-        #鍏蜂綋渚嬪瓙: self.model.embed(["hello"]) 杩斿洖 [[0.1, 0.2, ...]]锛岄渶瑕佸彇绗竴琛?[0]锛屽啀杞垚 list 
-        #[0]涓嶄篃鏄暟缁勶紵
-        # 鏄殑锛宻elf.model.embed(["hello"]) 杩斿洖 [[0.1, 0.2, ...]]锛?        # 杩欐槸涓€涓簩缁存暟缁勩€傚彇绗竴琛?[0] 鍚庡緱鍒?[0.1, 0.2, ...]锛岃繖鏄竴涓竴缁存暟缁勩€傛渶鍚庡啀杞垚 list 灏辨槸鏈€缁堢殑鍚戦噺鍒楄〃銆?
+        #eg: self.model.embed([text]) 返回 [[vector]]，需要取第一行 [0]，再转成 list
+        #具体例子: self.model.embed(["hello"]) 返回 [[0.1, 0.2, ...]]，需要取第一行 [0]，再转成 list 
+        #[0]不也是数组？
+        # 是的，self.model.embed(["hello"]) 返回 [[0.1, 0.2, ...]]，
+        # 这是一个二维数组。取第一行 [0] 后得到 [0.1, 0.2, ...]，这是一个一维数组。最后再转成 list 就是最终的向量列表。
 
-# ========== 2. Milvus VectorStore 閫傞厤鍣?==========
+
+# ========== 2. Milvus VectorStore 适配器 ==========
 class MilvusVectorStore(VectorStore):
     """
-    鎵嬪啓 Milvus 鍚戦噺瀛樺偍閫傞厤鍣紝瀹炵幇 LangChain VectorStore 鎺ュ彛銆?    鍙渶瀹炵幇涓や釜鏍稿績鏂规硶锛?    - from_texts(): 浠庢枃鏈垱寤哄悜閲忓簱锛堝寘鎷垱寤?Collection銆佺储寮曘€佹彃鍏ユ暟鎹級
-    - similarity_search(): 鐩镐技搴︽悳绱?
-    杩欏睍绀轰簡 LangChain VectorStore 鐨勬湰璐細涓€涓甫 search 鎺ュ彛鐨勫瓨鍌ㄣ€?    """
+    手写 Milvus 向量存储适配器，实现 LangChain VectorStore 接口。
+    只需实现两个核心方法：
+    - from_texts(): 从文本创建向量库（包括创建 Collection、索引、插入数据）
+    - similarity_search(): 相似度搜索
+
+    这展示了 LangChain VectorStore 的本质：一个带 search 接口的存储。
+    """
     def __init__(self, client: MilvusClient, collection_name: str, embedding: Embeddings):
         self.client = client
         self.collection_name = collection_name
@@ -73,14 +81,14 @@ class MilvusVectorStore(VectorStore):
         collection_name: str = "default",
         **kwargs: Any,
     ) -> "MilvusVectorStore":
-        """浠庢枃鏈垪琛ㄥ垱寤哄悜閲忓簱锛圠angChain 鏍囧噯鎺ュ彛锛?""
+        """从文本列表创建向量库（LangChain 标准接口）"""
         client = MilvusClient(uri=kwargs.get("uri", MILVUS_URI))
 
-        # 娓呯悊鏃?Collection
+        # 清理旧 Collection
         if client.has_collection(collection_name):
             client.drop_collection(collection_name)
 
-        # 鍒涘缓 Schema
+        # 创建 Schema
         schema = CollectionSchema(fields=[
             FieldSchema(name="id", dtype=DataType.INT64, is_primary=True, auto_id=True),
             FieldSchema(name="text", dtype=DataType.VARCHAR, max_length=4096),
@@ -90,16 +98,17 @@ class MilvusVectorStore(VectorStore):
 
         client.create_collection(collection_name=collection_name, schema=schema)
 
-        # 鍒涘缓 HNSW 绱㈠紩
+        # 创建 HNSW 索引
         index_params = client.prepare_index_params()
         index_params.add_index(
-            field_name="vector", #鎸囧畾鍚戦噺瀛楁
+            field_name="vector", #指定向量字段
             index_type="HNSW",
-            metric_type="COSINE", #鎸囧畾浣跨敤浣欏鸡鐩镐技搴﹁繘琛屾悳绱?            params={"M": 16, "efConstruction": 200}, # M 鎺у埗绱㈠紩澶嶆潅搴︼紝efConstruction 鎺у埗鏋勫缓璐ㄩ噺
+            metric_type="COSINE", #指定使用余弦相似度进行搜索
+            params={"M": 16, "efConstruction": 200}, # M 控制索引复杂度，efConstruction 控制构建质量
         )
         client.create_index(collection_name=collection_name, index_params=index_params)
 
-        # 鍚戦噺鍖栧苟鎻掑叆
+        # 向量化并插入
         vectors = embedding.embed_documents(texts)
         if metadatas is None:
             metadatas = [{}] * len(texts)
@@ -110,20 +119,22 @@ class MilvusVectorStore(VectorStore):
         ]
         client.insert(collection_name=collection_name, data=data)
 
-        # 鍔犺浇鍒板唴瀛?        client.load_collection(collection_name)
+        # 加载到内存
+        client.load_collection(collection_name)
 
-        print(f"[OK] 宸插垱寤?MilvusVectorStore: {collection_name}, {len(texts)} 鏉℃枃妗?)
+        print(f"[OK] 已创建 MilvusVectorStore: {collection_name}, {len(texts)} 条文档")
         return cls(client=client, collection_name=collection_name, embedding=embedding)
 
     def similarity_search(self, query: str, k: int = 4, **kwargs: Any) -> list[Document]:
-        """鐩镐技搴︽悳绱紙LangChain 鏍囧噯鎺ュ彛锛?""
+        """相似度搜索（LangChain 标准接口）"""
         query_vector = self.embedding.embed_query(query)
         results = self.client.search(
             collection_name=self.collection_name,
             data=[query_vector],
             limit=k,
             output_fields=["text", "metadata"],
-            search_params={"metric_type": "COSINE"}, #鎸囧畾浣跨敤浣欏鸡鐩镐技搴﹁繘琛屾悳绱?        )
+            search_params={"metric_type": "COSINE"}, #指定使用余弦相似度进行搜索
+        )
         docs = []
         for hit in results[0]:
             docs.append(Document(
@@ -133,7 +144,7 @@ class MilvusVectorStore(VectorStore):
         return docs
 
     def add_texts(self, texts: list[str], metadatas: list[dict] | None = None, **kwargs: Any) -> list[str]:
-        """杩藉姞鏂囨湰锛圠angChain 鏍囧噯鎺ュ彛锛?""
+        """追加文本（LangChain 标准接口）"""
         vectors = self.embedding.embed_documents(texts)
         if metadatas is None:
             metadatas = [{}] * len(texts)   # [{}, {}, {}]
@@ -145,23 +156,23 @@ class MilvusVectorStore(VectorStore):
         return result["ids"] 
 
 
-# ========== 3. 鍑嗗鐭ヨ瘑鏂囨。 ==========
+# ========== 3. 准备知识文档 ==========
 def prepare_documents() -> tuple[list[str], list[dict]]:
-    """妯℃嫙 RAG 鍦烘櫙锛氬噯澶囦竴鎵圭煡璇嗘枃妗?""
+    """模拟 RAG 场景：准备一批知识文档"""
     texts = [
-        "RAG锛堟绱㈠寮虹敓鎴愶級鏄綋鍓嶆渶涓绘祦鐨?LLM 搴旂敤鏋舵瀯銆傚畠閫氳繃妫€绱㈠閮ㄧ煡璇嗗簱锛屽皢鐩稿叧淇℃伅娉ㄥ叆 Prompt锛岃澶фā鍨嬪熀浜庣湡瀹炴暟鎹洖绛旓紝澶у箙鍑忓皯骞昏銆?,
-        "HyDE锛堝亣璁炬枃妗ｅ祵鍏ワ級鏄竴绉嶆煡璇㈡敼鍐欐妧鏈€傚厛璁?LLM 鐢熸垚鍋囪鎬у洖绛旓紝鐢ㄥ洖绛旂殑鍚戦噺鍘绘绱㈢湡瀹炴枃妗ｏ紝鍥犱负鍋囪鍥炵瓟鍜岀湡瀹炴枃妗ｅ湪璇箟绌洪棿鏇存帴杩戙€?,
-        "澶氭煡璇㈡敼鍐欙紙Multi-Query锛夎 LLM 浠庝笉鍚岃搴︾敓鎴愬涓煡璇㈠彉浣擄紝鍒嗗埆妫€绱㈠悗鍚堝苟鍘婚噸锛岃兘瑕嗙洊鏇村鐩稿叧鏂囨。銆?,
-        "BM25 鏄粡鍏哥殑绋€鐤忔绱㈢畻娉曪紝鍩轰簬璇嶉鍜岄€嗘枃妗ｉ鐜囪绠楃浉鍏虫€с€傛搮闀跨簿纭叧閿瘝鍖归厤锛屼絾涓嶇悊瑙ｈ涔夈€?,
-        "FAISS 鏄?Facebook 寮€婧愮殑鍚戦噺妫€绱㈠簱锛屾敮鎸佸绉嶇储寮曠被鍨嬨€傞€傚悎鐧句竾鍒板崈涓囩骇鍚戦噺鐨勬湰鍦版绱紝浣嗘病鏈夋寔涔呭寲鍜屽垎甯冨紡鑳藉姏銆?,
-        "Milvus 鏄敓浜х骇鍚戦噺鏁版嵁搴擄紝鏀寔鍗佷嚎绾у悜閲忓瓨鍌ㄣ€佸垎甯冨紡閮ㄧ讲銆佸绉熸埛銆傞€傚悎浼佷笟绾?RAG 绯荤粺鐨勭敓浜ч儴缃层€?,
-        "Chroma 鏄交閲忕骇鍚戦噺鏁版嵁搴擄紝API 绠€娲侊紝閫傚悎蹇€熷師鍨嬪紑鍙戙€備絾鎬ц兘鍜岃妯℃湁闄愶紝涓嶉€傚悎鐢熶骇鐜銆?,
-        "ReAct锛圧easoning + Acting锛夋槸 Agent 鐨勬牳蹇冭寖寮忋€侺LM 浜ゆ浛杩涜鎺ㄧ悊鍜岃鍔紝瑙傚療缁撴灉鍚庣户缁帹鐞嗭紝鐩村埌寰楀嚭鏈€缁堢瓟妗堛€?,
-        "Function Calling 鏄?OpenAI 鎻愬嚭鐨勫伐鍏疯皟鐢ㄦ満鍒躲€侺LM 杈撳嚭缁撴瀯鍖栫殑鍑芥暟璋冪敤鍙傛暟锛岀敱澶栭儴浠ｇ爜鎵ц鍚庡皢缁撴灉杩斿洖 LLM銆?,
-        "Agent Memory 鍖呮嫭鐭湡璁板繂锛堝璇濅笂涓嬫枃锛夊拰闀挎湡璁板繂锛堝悜閲忔暟鎹簱瀛樺偍鐨勫巻鍙茬煡璇嗭級銆?,
+        "RAG（检索增强生成）是当前最主流的 LLM 应用架构。它通过检索外部知识库，将相关信息注入 Prompt，让大模型基于真实数据回答，大幅减少幻觉。",
+        "HyDE（假设文档嵌入）是一种查询改写技术。先让 LLM 生成假设性回答，用回答的向量去检索真实文档，因为假设回答和真实文档在语义空间更接近。",
+        "多查询改写（Multi-Query）让 LLM 从不同角度生成多个查询变体，分别检索后合并去重，能覆盖更多相关文档。",
+        "BM25 是经典的稀疏检索算法，基于词频和逆文档频率计算相关性。擅长精确关键词匹配，但不理解语义。",
+        "FAISS 是 Facebook 开源的向量检索库，支持多种索引类型。适合百万到千万级向量的本地检索，但没有持久化和分布式能力。",
+        "Milvus 是生产级向量数据库，支持十亿级向量存储、分布式部署、多租户。适合企业级 RAG 系统的生产部署。",
+        "Chroma 是轻量级向量数据库，API 简洁，适合快速原型开发。但性能和规模有限，不适合生产环境。",
+        "ReAct（Reasoning + Acting）是 Agent 的核心范式。LLM 交替进行推理和行动，观察结果后继续推理，直到得出最终答案。",
+        "Function Calling 是 OpenAI 提出的工具调用机制。LLM 输出结构化的函数调用参数，由外部代码执行后将结果返回 LLM。",
+        "Agent Memory 包括短期记忆（对话上下文）和长期记忆（向量数据库存储的历史知识）。",
     ]
     metadatas = [
-        {"source": "rag", "topic": "RAG姒傝堪"},
+        {"source": "rag", "topic": "RAG概述"},
         {"source": "rag", "topic": "HyDE"},
         {"source": "rag", "topic": "Multi-Query"},
         {"source": "rag", "topic": "BM25"},
@@ -172,24 +183,25 @@ def prepare_documents() -> tuple[list[str], list[dict]]:
         {"source": "agent", "topic": "Function Calling"},
         {"source": "agent", "topic": "Memory"},
     ]
-    print(f"[OK] 宸插噯澶?{len(texts)} 绡囩煡璇嗘枃妗?)
+    print(f"[OK] 已准备 {len(texts)} 篇知识文档")
     return texts, metadatas
 
 
-# ========== 4. 鏋勫缓 RAG 妫€绱㈤摼 ==========
+# ========== 4. 构建 RAG 检索链 ==========
 def build_rag_chain(vectorstore: MilvusVectorStore):
     """
-    鏋勫缓 LangChain RAG 閾撅細
-    Retriever 鈫?鏍煎紡鍖栦笂涓嬫枃 鈫?Prompt 鈫?GLM 鈫?瑙ｆ瀽杈撳嚭
+    构建 LangChain RAG 链：
+    Retriever → 格式化上下文 → Prompt → GLM → 解析输出
     """
     retriever = vectorstore.as_retriever(search_kwargs={"k": 3}) 
-    #as_retriever() 鏄?LangChain VectorStore 鐨勬柟娉曪紝杩斿洖涓€涓?Retriever 瀵硅薄锛宻earch_kwargs={"k": 3} 鎸囧畾姣忔妫€绱㈣繑鍥?3 鏉＄浉鍏虫枃妗?
+    #as_retriever() 是 LangChain VectorStore 的方法，返回一个 Retriever 对象，search_kwargs={"k": 3} 指定每次检索返回 3 条相关文档
+
     prompt = ChatPromptTemplate.from_template(
-        "浣犳槸涓€涓笓涓氱殑鎶€鏈姪鎵嬨€傝鏍规嵁浠ヤ笅鍙傝€冭祫鏂欏洖绛旂敤鎴烽棶棰樸€俓n"
-        "濡傛灉鍙傝€冭祫鏂欎腑娌℃湁鐩稿叧淇℃伅锛岃鏄庣‘璇存槑'鏍规嵁宸叉湁鐭ヨ瘑鏃犳硶鍥炵瓟'銆俓n\n"
-        "鍙傝€冭祫鏂?\n{context}\n\n"
-        "鐢ㄦ埛闂: {question}\n\n"
-        "璇风敤涓枃鍥炵瓟锛?
+        "你是一个专业的技术助手。请根据以下参考资料回答用户问题。\n"
+        "如果参考资料中没有相关信息，请明确说明'根据已有知识无法回答'。\n\n"
+        "参考资料:\n{context}\n\n"
+        "用户问题: {question}\n\n"
+        "请用中文回答："
     )
 
     llm = ChatOpenAI(
@@ -199,12 +211,12 @@ def build_rag_chain(vectorstore: MilvusVectorStore):
         temperature=0.7,
     )
 
-    def format_docs(docs): #杩斿洖鍊?鏄竴涓瓧绗︿覆锛屾牸寮忓寲鍚庣殑鏂囨。鍐呭
+    def format_docs(docs): #返回值 是一个字符串，格式化后的文档内容
         formatted = []
         for i, doc in enumerate(docs):
             source = doc.metadata.get("source", "unknown")
             topic = doc.metadata.get("topic", "")
-            formatted.append(f"[鏂囨。{i+1}] (鏉ユ簮: {source}, 涓婚: {topic})\n{doc.page_content}")
+            formatted.append(f"[文档{i+1}] (来源: {source}, 主题: {topic})\n{doc.page_content}")
         return "\n\n".join(formatted)
 
     rag_chain = (
@@ -212,46 +224,51 @@ def build_rag_chain(vectorstore: MilvusVectorStore):
         | prompt
         | llm
         | StrOutputParser()
-    )  #鏋勫缓閾捐矾锛氬厛妫€绱㈠緱鍒扮浉鍏虫枃妗ｏ紝鏍煎紡鍖栨垚瀛楃涓插悗濉叆 Prompt锛屽啀璋冪敤 LLM 鐢熸垚鍥炵瓟锛屾渶鍚庤В鏋愭垚绾枃鏈緭鍑?
-    print("[OK] RAG 妫€绱㈤摼鏋勫缓瀹屾垚")
-    print("     閾捐矾: 鐢ㄦ埛闂 鈫?Milvus妫€绱op-3 鈫?Prompt 鈫?GLM-4-Flash 鈫?鍥炵瓟")
+    )  #构建链路：先检索得到相关文档，格式化成字符串后填入 Prompt，再调用 LLM 生成回答，最后解析成纯文本输出
+
+    print("[OK] RAG 检索链构建完成")
+    print("     链路: 用户问题 → Milvus检索Top-3 → Prompt → GLM-4-Flash → 回答")
     return rag_chain, retriever
 
 
-# ========== 5. 绔埌绔棶绛旀祴璇?==========
+# ========== 5. 端到端问答测试 ==========
 def run_qa_test(rag_chain, retriever):
-    """娴嬭瘯 RAG 闂瓟鏁堟灉"""
+    """测试 RAG 问答效果"""
     questions = [
-        "浠€涔堟槸 RAG锛熷畠瑙ｅ喅浜嗕粈涔堥棶棰橈紵",
-        "Milvus 鍜?FAISS 鏈変粈涔堝尯鍒紵",
-        "Agent 鐨?ReAct 鑼冨紡鏄粈涔堬紵",
-        "閲忓瓙璁＄畻鐨勫師鐞嗘槸浠€涔堬紵",  # 瓒呭嚭鐭ヨ瘑搴撹寖鍥?    ]
+        "什么是 RAG？它解决了什么问题？",
+        "Milvus 和 FAISS 有什么区别？",
+        "Agent 的 ReAct 范式是什么？",
+        "量子计算的原理是什么？",  # 超出知识库范围
+    ]
 
     for i, question in enumerate(questions):
         print(f"\n{'=' * 60}")
-        print(f"闂 {i+1}: {question}")
+        print(f"问题 {i+1}: {question}")
         print(f"{'=' * 60}")
 
-        docs = retriever.invoke(question) #.invoke() 鏄?LangChain Retriever 鐨勬柟娉曪紝鎵ц妫€绱㈠苟杩斿洖鐩稿叧鏂囨。鍒楄〃
-        print(f"妫€绱㈠埌 {len(docs)} 绡囩浉鍏虫枃妗?")
+        docs = retriever.invoke(question) #.invoke() 是 LangChain Retriever 的方法，执行检索并返回相关文档列表
+        print(f"检索到 {len(docs)} 篇相关文档:")
         for j, doc in enumerate(docs):
             print(f"  [{j+1}] ({doc.metadata.get('topic', '?')}) {doc.page_content[:60]}...")
 
-        print(f"\nGLM 鍥炵瓟:")
+        print(f"\nGLM 回答:")
         answer = rag_chain.invoke(question) 
-        #杩欓噷鏂硅繘鍘荤殑涓轰粈涔堜笉鏄绱㈠悗鐨刣ocs锛?        #鍥犱负rag_chain鏄痓uild_rag_chain()鍑芥暟涓瀯寤虹殑閾捐矾锛?        # 閾捐矾涓凡缁忓寘鍚簡retriever锛屾墍浠ョ洿鎺ヨ皟鐢╮ag_chain.invoke(question)灏变細鑷姩鍏堟墽琛屾绱紝寰楀埌鐩稿叧鏂囨。锛屽啀鏍煎紡鍖栨枃妗ｅ唴瀹癸紝濉叆Prompt锛屾渶鍚庤皟鐢↙LM鐢熸垚鍥炵瓟銆?        print(f"  {answer}")
+        #这里方进去的为什么不是检索后的docs？
+        #因为rag_chain是build_rag_chain()函数中构建的链路，
+        # 链路中已经包含了retriever，所以直接调用rag_chain.invoke(question)就会自动先执行检索，得到相关文档，再格式化文档内容，填入Prompt，最后调用LLM生成回答。
+        print(f"  {answer}")
 
 
-# ========== 涓诲嚱鏁?==========
+# ========== 主函数 ==========
 if __name__ == "__main__":
     try:
-        # Step 1: 鍑嗗鏂囨。
+        # Step 1: 准备文档
         texts, metadatas = prepare_documents()
 
-        # Step 2: 鍒濆鍖?Embedding
+        # Step 2: 初始化 Embedding
         embeddings = FastEmbedEmbeddings(EMBEDDING_MODEL)
 
-        # Step 3: 鍒涘缓 Milvus 鍚戦噺搴?  
+        # Step 3: 创建 Milvus 向量库   
         vectorstore = MilvusVectorStore.from_texts(
             texts=texts,
             embedding=embeddings,
@@ -260,20 +277,20 @@ if __name__ == "__main__":
             uri=MILVUS_URI,
         )
 
-        # Step 4: 鏋勫缓 RAG 閾?        rag_chain, retriever = build_rag_chain(vectorstore)
+        # Step 4: 构建 RAG 链
+        rag_chain, retriever = build_rag_chain(vectorstore)
 
-        # Step 5: 闂瓟娴嬭瘯
+        # Step 5: 问答测试
         run_qa_test(rag_chain, retriever)
 
         print(f"\n{'=' * 60}")
-        print("[OK] Milvus + LangChain RAG 闆嗘垚婕旂ず瀹屾垚锛?)
-        print("鏍稿績鏀惰幏锛?)
-        print("  1. VectorStore 鎺ュ彛鐨勬湰璐?= 瀛樺偍 + 鎼滅储")
-        print("  2. Milvus 鏇夸唬 FAISS锛屾敮鎸佺敓浜х骇閮ㄧ讲")
-        print("  3. 鏁翠釜 RAG 閾捐矾锛氭枃妗?鈫?鍚戦噺鍖?鈫?Milvus 鈫?妫€绱?鈫?LLM")
+        print("[OK] Milvus + LangChain RAG 集成演示完成！")
+        print("核心收获：")
+        print("  1. VectorStore 接口的本质 = 存储 + 搜索")
+        print("  2. Milvus 替代 FAISS，支持生产级部署")
+        print("  3. 整个 RAG 链路：文档 → 向量化 → Milvus → 检索 → LLM")
     except Exception as e:
         print(f"\n[ERROR] {e}")
         import traceback
         traceback.print_exc()
-        print("[INFO] 璇风‘淇?Milvus 鏈嶅姟宸插惎鍔紙docker compose up -d锛?)
-
+        print("[INFO] 请确保 Milvus 服务已启动（docker compose up -d）")

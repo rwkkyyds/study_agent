@@ -163,7 +163,7 @@ def login_and_get_token(client: TestClient, username: str, password: str) -> str
         "/login",
         data={"username": username, "password": password},
     )
-    return response.json()["access_token"]   
+    return response.json()["access_token"]
 
 
 def run_local_demo() -> None:

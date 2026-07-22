@@ -19,8 +19,8 @@ from pgvector.sqlalchemy import Vector
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger(__name__)
 
-DB_URL = os.getenv("PGVECTOR_DATABASE_URL", "postgresql://postgres:123456@localhost:5433/postgres")
-DEEPSEEK_KEY = os.getenv("DEEPSEEK_API_KEY")
+DB_URL = "postgresql://postgres:123456@localhost:5433/postgres"
+DEEPSEEK_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 EMBEDDING_DIM = 512
 
 
@@ -195,6 +195,9 @@ def generate_answer(query: str, contexts: list[str]) -> str:
     RAG 核心价值：LLM 基于「外部知识」回答，而非依赖训练记忆。
     """
     from openai import OpenAI
+
+    if not DEEPSEEK_KEY:
+        raise RuntimeError("请先设置环境变量 DEEPSEEK_API_KEY，再运行本 demo。")
 
     context_text = "\n\n---\n\n".join(contexts)
     system_prompt = (

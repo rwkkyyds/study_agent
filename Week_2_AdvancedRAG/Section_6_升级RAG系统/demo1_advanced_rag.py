@@ -1,9 +1,10 @@
-﻿"""
-Demo1: Advanced RAG 绯荤粺锛圵eek 2 鍛?Demo锛?闆嗘垚锛氬鏉傛枃妗ｈВ鏋?+ 娣峰悎妫€绱?BM25+鍚戦噺) + RRF铻嶅悎 + Rerank閲嶆帓 + Milvus
-瀵规瘮锛歂aive RAG vs Advanced RAG 鏁堟灉宸紓
-渚濊禆锛歱ip install reportlab pdfplumber pymilvus fastembed langchain-openai rank_bm25 sentence-transformers
-鍓嶆彁锛歞ocker compose up -d 鍚姩 Milvus 鏈嶅姟
-杩愯锛歞ocker build -t rag-demo . && docker run --rm --add-host host.docker.internal:host-gateway rag-demo
+"""
+Demo1: Advanced RAG 系统（Week 2 周 Demo）
+集成：复杂文档解析 + 混合检索(BM25+向量) + RRF融合 + Rerank重排 + Milvus
+对比：Naive RAG vs Advanced RAG 效果差异
+依赖：pip install reportlab pdfplumber pymilvus fastembed langchain-openai rank_bm25 sentence-transformers
+前提：docker compose up -d 启动 Milvus 服务
+运行：docker build -t rag-demo . && docker run --rm --add-host host.docker.internal:host-gateway rag-demo
 """
 
 import sys
@@ -13,7 +14,8 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 import os
 from pathlib import Path
 from dataclasses import dataclass, field 
-# dataclass 鐢ㄤ簬瀹氫箟绠€鍗曠殑鏁版嵁缁撴瀯锛宖ield 鐢ㄤ簬鎸囧畾瀛楁鐨勯粯璁ゅ€兼垨鍏冩暟鎹?
+# dataclass 用于定义简单的数据结构，field 用于指定字段的默认值或元数据
+
 import pdfplumber
 import numpy as np
 from langchain_core.documents import Document
@@ -26,11 +28,12 @@ from langchain_openai import ChatOpenAI
 from fastembed import TextEmbedding
 from pymilvus import MilvusClient, DataType, CollectionSchema, FieldSchema
 from rank_bm25 import BM25Okapi 
-# BM25 鏄竴绉嶇粡鍏哥殑鍏抽敭璇嶆绱㈢畻娉曪紝rank_bm25 鏄?Python 鐨?BM25 瀹炵幇搴擄紝
-# 鎻愪緵浜?BM25Okapi 绫绘潵杩涜妫€绱?from flashrank import Ranker, RerankRequest
+# BM25 是一种经典的关键词检索算法，rank_bm25 是 Python 的 BM25 实现库，
+# 提供了 BM25Okapi 类来进行检索
+from flashrank import Ranker, RerankRequest
 
 
-# ========== 閰嶇疆 ==========
+# ========== 配置 ==========
 DEMO_DIR = Path(__file__).parent / "demo_files"
 DEMO_DIR.mkdir(exist_ok=True)
 PDF_PATH = DEMO_DIR / "sample_rag_doc.pdf"
@@ -38,13 +41,13 @@ MILVUS_URI = os.environ.get("MILVUS_URI", "http://localhost:19530")
 COLLECTION_NAME = "demo_advanced_rag"
 EMBEDDING_MODEL = "BAAI/bge-small-zh-v1.5"
 VECTOR_DIM = 512
-ZHIPU_API_KEY = __import__("os").environ.get("ZHIPU_API_KEY")
+ZHIPU_API_KEY = "70041ddde9824461bfb02fac3f469fc3.pDZCoxOgkovIx1vT"
 ZHIPU_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/"
 RERANK_MODEL = os.environ.get("RERANK_MODEL", "ms-marco-MultiBERT-L-12")
-# FlashRank 閲嶆帓妯″瀷锛堝璇█锛屾敮鎸佷腑鑻辨枃锛夛紝鍩轰簬 onnxruntime锛屾棤闇€ PyTorch
+# FlashRank 重排模型（多语言，支持中英文），基于 onnxruntime，无需 PyTorch
  
 
-# ========== 鍏冪礌绫诲瀷 ==========
+# ========== 元素类型 ==========
 @dataclass
 class Element:
     text: str
@@ -61,16 +64,16 @@ class Table(Element):
 class ListItem(Element): pass
 
 
-# ========== 1. PDF 瑙ｆ瀽锛圫ection 5 鐭ヨ瘑鐐癸級 ==========
+# ========== 1. PDF 解析（Section 5 知识点） ==========
 def _find_cjk_font():
-    """鏌ユ壘鍙敤鐨勪腑鏂囧瓧浣擄紝鍏煎 Linux 瀹瑰櫒鍜?Windows"""
+    """查找可用的中文字体，兼容 Linux 容器和 Windows"""
     candidates = [
-        # Linux 甯歌璺緞
+        # Linux 常见路径
         "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
         "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
         "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
         "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
-        # Windows 璺緞
+        # Windows 路径
         "C:/Windows/Fonts/msyh.ttc",
         "C:/Windows/Fonts/simsun.ttc",
     ]
@@ -81,7 +84,7 @@ def _find_cjk_font():
 
 
 def create_sample_pdf():
-    """鍒涘缓绀轰緥 PDF"""
+    """创建示例 PDF"""
     from reportlab.lib.pagesizes import A4
     from reportlab.lib import colors
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table as RLTable, TableStyle
@@ -98,7 +101,7 @@ def create_sample_pdf():
             font_name = "Helvetica"
     else:
         font_name = "Helvetica"
-        print("[WARN] 鏈壘鍒颁腑鏂囧瓧浣擄紝PDF 涓殑涓枃鍙兘鏄剧ず涓烘柟鍧?)
+        print("[WARN] 未找到中文字体，PDF 中的中文可能显示为方块")
 
     doc = SimpleDocTemplate(str(PDF_PATH), pagesize=A4)
     styles = getSampleStyleSheet()
@@ -108,25 +111,25 @@ def create_sample_pdf():
     list_style = ParagraphStyle("CNList", parent=styles["Normal"], fontName=font_name, fontSize=10, leading=16, leftIndent=20)
 
     elements = []
-    elements.append(Paragraph("RAG 绯荤粺鎶€鏈€夊瀷涓庝紭鍖栨姤鍛?, title_style))
+    elements.append(Paragraph("RAG 系统技术选型与优化报告", title_style))
     elements.append(Spacer(1, 10))
 
-    # 姝ｆ枃1锛歊AG 姒傝堪
+    # 正文1：RAG 概述
     elements.append(Paragraph(
-        "RAG锛堟绱㈠寮虹敓鎴愶級閫氳繃妫€绱㈠閮ㄧ煡璇嗗簱鏉ュ寮哄ぇ妯″瀷鐨勫洖绛旇兘鍔涳紝鍑忓皯骞昏銆?
-        "涓€涓畬鏁寸殑 RAG 绯荤粺鍖呭惈鏂囨。瑙ｆ瀽銆佹枃鏈垎鍧椼€佸悜閲忓寲銆佸悜閲忓瓨鍌ㄣ€佹绱€侀噸鎺掋€佺敓鎴愮瓑鐜妭銆?
-        "Naive RAG 鐨勯棶棰樺湪浜庢绱㈢簿搴︿笉瓒筹紝Advanced RAG 閫氳繃娣峰悎妫€绱㈠拰閲嶆帓鏉ヨВ鍐炽€?, body_style))
+        "RAG（检索增强生成）通过检索外部知识库来增强大模型的回答能力，减少幻觉。"
+        "一个完整的 RAG 系统包含文档解析、文本分块、向量化、向量存储、检索、重排、生成等环节。"
+        "Naive RAG 的问题在于检索精度不足，Advanced RAG 通过混合检索和重排来解决。", body_style))
     elements.append(Spacer(1, 10))
 
-    # 琛ㄦ牸锛氬悜閲忔暟鎹簱瀵规瘮
-    elements.append(Paragraph("涓€銆佸悜閲忔暟鎹簱瀵规瘮", heading_style))
+    # 表格：向量数据库对比
+    elements.append(Paragraph("一、向量数据库对比", heading_style))
     elements.append(Spacer(1, 5))
-    headers = ["鏁版嵁搴?, "瀹氫綅", "鏈€澶ц妯?, "鍒嗗竷寮?, "閫傜敤鍦烘櫙"]
+    headers = ["数据库", "定位", "最大规模", "分布式", "适用场景"]
     rows = [
-        ["FAISS", "鍚戦噺妫€绱㈠簱", "鍗冧竾绾?, "鍚?, "鏈湴瀹為獙"],
-        ["Chroma", "杞婚噺鍚戦噺搴?, "鍗佷竾绾?, "鍚?, "鍘熷瀷寮€鍙?],
-        ["Milvus", "鐢熶骇绾у悜閲忓簱", "鍗佷嚎绾?, "鏄?, "鐢熶骇閮ㄧ讲"],
-        ["Pinecone", "浜戝悜閲忔湇鍔?, "鍗佷嚎绾?, "鏄?, "SaaS鍦烘櫙"],
+        ["FAISS", "向量检索库", "千万级", "否", "本地实验"],
+        ["Chroma", "轻量向量库", "十万级", "否", "原型开发"],
+        ["Milvus", "生产级向量库", "十亿级", "是", "生产部署"],
+        ["Pinecone", "云向量服务", "十亿级", "是", "SaaS场景"],
     ]
     table_data = [headers] + rows
     table = RLTable(table_data, colWidths=[60, 70, 50, 40, 70])
@@ -142,41 +145,44 @@ def create_sample_pdf():
     elements.append(table)
     elements.append(Spacer(1, 15))
 
-    # 姝ｆ枃2锛氭绱紭鍖?    elements.append(Paragraph("浜屻€佹绱紭鍖栫瓥鐣?, heading_style))
+    # 正文2：检索优化
+    elements.append(Paragraph("二、检索优化策略", heading_style))
     elements.append(Spacer(1, 5))
     elements.append(Paragraph(
-        "娣峰悎妫€绱㈢粨鍚堜簡 BM25 鍏抽敭璇嶆绱㈠拰鍚戦噺璇箟妫€绱㈢殑浼樺娍銆?
-        "BM25 鎿呴暱绮剧‘鍏抽敭璇嶅尮閰嶏紝鍚戦噺妫€绱㈡搮闀胯涔夌浉浼煎害鍖归厤銆?
-        "閫氳繃 RRF锛圧eciprocal Rank Fusion锛夎瀺鍚堜袱璺绱㈢粨鏋滐紝鍙栭暱琛ョ煭銆?, body_style))
+        "混合检索结合了 BM25 关键词检索和向量语义检索的优势。"
+        "BM25 擅长精确关键词匹配，向量检索擅长语义相似度匹配。"
+        "通过 RRF（Reciprocal Rank Fusion）融合两路检索结果，取长补短。", body_style))
     elements.append(Spacer(1, 10))
 
-    # 姝ｆ枃3锛氶噸鎺?    elements.append(Paragraph("涓夈€丷erank 閲嶆帓", heading_style))
+    # 正文3：重排
+    elements.append(Paragraph("三、Rerank 重排", heading_style))
     elements.append(Spacer(1, 5))
     elements.append(Paragraph(
-        "CrossEncoder 灏?Query 鍜?Document 鎷兼帴鍚庝竴璧风紪鐮侊紝鑳芥崟鎹夋洿缁嗙矑搴︾殑璇箟鍏崇郴銆?
-        "瀹冪殑绮惧害楂樹簬 Bi-Encoder锛堝悜閲忔绱㈢敤鐨勶級锛屼絾閫熷害鎱紝閫傚悎瀵?Top-K 缁撴灉鍋氱簿鎺掋€?
-        "鍏稿瀷鐨勪袱闃舵妫€绱㈡灦鏋勶細绗竴闃舵 BM25+鍚戦噺绮楀彫鍥烇紝绗簩闃舵 CrossEncoder 绮炬帓銆?, body_style))
+        "CrossEncoder 将 Query 和 Document 拼接后一起编码，能捕捉更细粒度的语义关系。"
+        "它的精度高于 Bi-Encoder（向量检索用的），但速度慢，适合对 Top-K 结果做精排。"
+        "典型的两阶段检索架构：第一阶段 BM25+向量粗召回，第二阶段 CrossEncoder 精排。", body_style))
     elements.append(Spacer(1, 10))
 
-    # 鍒楄〃锛氫紭鍖栬鐐?    elements.append(Paragraph("鍥涖€丄dvanced RAG 浼樺寲瑕佺偣", heading_style))
+    # 列表：优化要点
+    elements.append(Paragraph("四、Advanced RAG 优化要点", heading_style))
     elements.append(Spacer(1, 5))
     points = [
-        "1. 鏂囨。瑙ｆ瀽锛氭寜鍏冪礌绫诲瀷瑙ｆ瀽锛岃〃鏍兼暣浣撲繚鐣欎笉鍒囩",
-        "2. 娣峰悎妫€绱細BM25锛堝叧閿瘝锛? 鍚戦噺锛堣涔夛級鍙岃矾鍙洖",
-        "3. RRF 铻嶅悎锛氳瀺鍚堜袱璺绱㈢粨鏋滐紝缁煎悎鎺掑悕",
-        "4. Rerank 閲嶆帓锛欳rossEncoder 绮炬帓锛屾彁鍗?Top-K 绮惧害",
-        "5. 鍚戦噺搴擄細Milvus 鐢熶骇绾ч儴缃诧紝鏀寔鍗佷嚎绾ф暟鎹?,
+        "1. 文档解析：按元素类型解析，表格整体保留不切碎",
+        "2. 混合检索：BM25（关键词）+ 向量（语义）双路召回",
+        "3. RRF 融合：融合两路检索结果，综合排名",
+        "4. Rerank 重排：CrossEncoder 精排，提升 Top-K 精度",
+        "5. 向量库：Milvus 生产级部署，支持十亿级数据",
     ]
     for point in points:
         elements.append(Paragraph(point, list_style))
         elements.append(Spacer(1, 4))
 
     doc.build(elements)
-    print(f"[OK] 宸插垱寤虹ず渚?PDF: {PDF_PATH}")
+    print(f"[OK] 已创建示例 PDF: {PDF_PATH}")
 
 
 def partition_pdf(filename: str) -> list[Element]:
-    """鎸夊厓绱犵被鍨嬭В鏋?PDF锛圫ection 5 鐭ヨ瘑鐐癸級"""
+    """按元素类型解析 PDF（Section 5 知识点）"""
     elements = []
     with pdfplumber.open(filename) as pdf:
         for page_num, page in enumerate(pdf.pages):
@@ -189,7 +195,7 @@ def partition_pdf(filename: str) -> list[Element]:
                     line = line.strip()
                     if not line:
                         continue
-                    if line.endswith("锛?) or line.endswith(":") or line.startswith(("涓€銆?, "浜屻€?, "涓夈€?, "鍥涖€?)):
+                    if line.endswith("：") or line.endswith(":") or line.startswith(("一、", "二、", "三、", "四、")):
                         new_type = "heading"
                     elif any(line.startswith(f"{i}.") for i in range(1, 10)):
                         new_type = "list"
@@ -262,7 +268,7 @@ class MilvusVectorStore(VectorStore):
         data = [{"text": t, "vector": v, "metadata": m} for t, v, m in zip(texts, vectors, metadatas)]
         client.insert(collection_name=collection_name, data=data)
         client.load_collection(collection_name)
-        print(f"[OK] Milvus 鍚戦噺搴撳氨缁? {collection_name}, {len(texts)} 鏉?)
+        print(f"[OK] Milvus 向量库就绪: {collection_name}, {len(texts)} 条")
         return cls(client=client, collection_name=collection_name, embedding=embedding)
 
     @classmethod
@@ -280,15 +286,16 @@ class MilvusVectorStore(VectorStore):
                          metadata=hit["entity"].get("metadata", {})) for hit in results[0]]
 
 
-# ========== 3. BM25 妫€绱㈠櫒锛圫ection 2 鐭ヨ瘑鐐癸級 ==========
+# ========== 3. BM25 检索器（Section 2 知识点） ==========
 class BM25Retriever:
     """
-    BM25 绋€鐤忔绱㈠櫒
-    浼樺娍锛氱簿纭叧閿瘝鍖归厤锛屼笉渚濊禆 Embedding 妯″瀷
+    BM25 稀疏检索器
+    优势：精确关键词匹配，不依赖 Embedding 模型
     """
     def __init__(self, documents: list[Document]):
         self.documents = documents
-        # 涓枃鎸夊瓧绗﹀垎璇嶏紙绠€鍗曞鐞嗭紝鐢熶骇鐜鐢?jieba锛?        tokenized = [list(doc.page_content) for doc in documents]
+        # 中文按字符分词（简单处理，生产环境用 jieba）
+        tokenized = [list(doc.page_content) for doc in documents]
         self.bm25 = BM25Okapi(tokenized)
 
     def invoke(self, query: str, k: int = 3) -> list[Document]:
@@ -298,15 +305,17 @@ class BM25Retriever:
         return [self.documents[i] for i in top_indices]
 
 
-# ========== 4. RRF 铻嶅悎锛圫ection 2 鐭ヨ瘑鐐癸級 ==========
+# ========== 4. RRF 融合（Section 2 知识点） ==========
 def rrf_fusion(results_list: list[list[Document]], k: int = 60) -> list[Document]:
     """
-    RRF锛圧eciprocal Rank Fusion锛夎瀺鍚堝璺绱㈢粨鏋?    鍏紡锛歴core = sum(1 / (k + rank_i))
-    浼樺娍锛氫笉闇€瑕佸綊涓€鍖栧垎鏁帮紝鐩存帴鐢ㄦ帓鍚嶈瀺鍚?    """
+    RRF（Reciprocal Rank Fusion）融合多路检索结果
+    公式：score = sum(1 / (k + rank_i))
+    优势：不需要归一化分数，直接用排名融合
+    """
     doc_scores = {}
     for results in results_list:
         for rank, doc in enumerate(results):
-            doc_key = doc.page_content[:100]  # 鐢ㄥ唴瀹瑰墠100瀛楃鍋氬幓閲峩ey
+            doc_key = doc.page_content[:100]  # 用内容前100字符做去重key
             if doc_key not in doc_scores:
                 doc_scores[doc_key] = {"doc": doc, "score": 0}
             doc_scores[doc_key]["score"] += 1 / (k + rank + 1)
@@ -315,57 +324,65 @@ def rrf_fusion(results_list: list[list[Document]], k: int = 60) -> list[Document
     return [item["doc"] for item in sorted_docs]
 
 
-# ========== 5. Rerank 閲嶆帓锛圫ection 2 鐭ヨ瘑鐐癸級 ==========
+# ========== 5. Rerank 重排（Section 2 知识点） ==========
 class Reranker:
     """
-    Rerank 绮炬帓鍣紙鍩轰簬 FlashRank锛岀函 onnxruntime锛屾棤闇€ PyTorch锛?    灏?Query + Document 鎷兼帴鍚庝竴璧风紪鐮侊紝鎹曟崏缁嗙矑搴﹁涔夊叧绯?    绮惧害楂樹簬 Bi-Encoder锛屼絾閫熷害鎱紝閫傚悎瀵?Top-K 鍋氱簿鎺?    """
+    Rerank 精排器（基于 FlashRank，纯 onnxruntime，无需 PyTorch）
+    将 Query + Document 拼接后一起编码，捕捉细粒度语义关系
+    精度高于 Bi-Encoder，但速度慢，适合对 Top-K 做精排
+    """
     def __init__(self, model_name: str = RERANK_MODEL):
-        print(f"[INFO] 鍔犺浇 Rerank 妯″瀷: {model_name} ...")
+        print(f"[INFO] 加载 Rerank 模型: {model_name} ...")
         self.ranker = Ranker(model_name=model_name) 
-        print(f"[OK] Rerank 妯″瀷宸插姞杞?)
+        print(f"[OK] Rerank 模型已加载")
 
     def rerank(self, query: str, documents: list[Document], top_k: int = 3) -> list[Document]:
         if not documents:
             return []
-        # FlashRank 瑕佹眰 passages 鏍煎紡: [{"id": 0, "text": "..."}, ...]
+        # FlashRank 要求 passages 格式: [{"id": 0, "text": "..."}, ...]
         passages = [{"id": i, "text": doc.page_content} for i, doc in enumerate(documents)]
-        req = RerankRequest(query=query, passages=passages) # 鏋勯€?Rerank 璇锋眰瀵硅薄锛屽寘鍚煡璇㈠拰鍊欓€夋枃妗?        results = self.ranker.rerank(req) # 璋冪敤 Rerank 妯″瀷杩涜閲嶆帓锛岃繑鍥炴寜鐩稿叧鎬ф帓搴忕殑缁撴灉鍒楄〃锛屾瘡涓粨鏋滃寘鍚枃妗?ID 鍜屽垎鏁?        # results 鎸夊垎鏁伴檷搴忔帓鍒楋紝鍙?top_k
+        req = RerankRequest(query=query, passages=passages) # 构造 Rerank 请求对象，包含查询和候选文档
+        results = self.ranker.rerank(req) # 调用 Rerank 模型进行重排，返回按相关性排序的结果列表，每个结果包含文档 ID 和分数
+        # results 按分数降序排列，取 top_k
         reranked = []
         for r in results[:top_k]:
             reranked.append(documents[r["id"]])
         return reranked
 
 
-# ========== 6. Advanced RAG 绯荤粺 ==========
+# ========== 6. Advanced RAG 系统 ==========
 def build_advanced_rag(vectorstore, documents, reranker, embeddings):
     """
-    鏋勫缓 Advanced RAG 閾捐矾锛?    鐢ㄦ埛闂 鈫?娣峰悎妫€绱?BM25+鍚戦噺) 鈫?RRF铻嶅悎 鈫?Rerank閲嶆帓 鈫?LLM鍥炵瓟
+    构建 Advanced RAG 链路：
+    用户问题 → 混合检索(BM25+向量) → RRF融合 → Rerank重排 → LLM回答
     """
-    bm25_retriever = BM25Retriever(documents) #鍩轰簬鍘熷鏂囨。鏋勫缓 BM25 妫€绱㈠櫒锛岀洿鎺ヤ娇鐢ㄦ枃鏈唴瀹硅繘琛屽叧閿瘝妫€绱?    vector_retriever = vectorstore.as_retriever(search_kwargs={"k": 5}) # 鍩轰簬鍚戦噺搴撴瀯寤哄悜閲忔绱㈠櫒锛屼娇鐢ㄦ枃鏈殑鍚戦噺琛ㄧず杩涜璇箟妫€绱?
+    bm25_retriever = BM25Retriever(documents) #基于原始文档构建 BM25 检索器，直接使用文本内容进行关键词检索
+    vector_retriever = vectorstore.as_retriever(search_kwargs={"k": 5}) # 基于向量库构建向量检索器，使用文本的向量表示进行语义检索
+
     prompt = ChatPromptTemplate.from_template(
-        "浣犳槸鎶€鏈垎鏋愬姪鎵嬨€傛牴鎹弬鑰冭祫鏂欏洖绛旈棶棰樸€俓n"
-        "濡傛灉鍙傝€冭祫鏂欏寘鍚〃鏍兼暟鎹紝璇峰熀浜庤〃鏍艰繘琛屽姣斿垎鏋愩€俓n"
-        "濡傛灉淇℃伅涓嶈冻锛屾槑纭鏄庛€俓n\n"
-        "鍙傝€冭祫鏂?\n{context}\n\n"
-        "闂: {question}\n\n"
-        "鍥炵瓟锛?)
+        "你是技术分析助手。根据参考资料回答问题。\n"
+        "如果参考资料包含表格数据，请基于表格进行对比分析。\n"
+        "如果信息不足，明确说明。\n\n"
+        "参考资料:\n{context}\n\n"
+        "问题: {question}\n\n"
+        "回答：")
     llm = ChatOpenAI(api_key=ZHIPU_API_KEY, base_url=ZHIPU_BASE_URL, model="glm-4-flash", temperature=0.7)
 
     def format_docs(docs):
         parts = []
         for i, d in enumerate(docs):
-            tag = "[琛ㄦ牸]" if d.metadata.get("is_table") else "[鏂囨湰]"
-            parts.append(f"鐗囨{i+1} {tag}:\n{d.page_content}")
+            tag = "[表格]" if d.metadata.get("is_table") else "[文本]"
+            parts.append(f"片段{i+1} {tag}:\n{d.page_content}")
         return "\n\n".join(parts)
 
     def advanced_retrieve(query: str) -> list[Document]:
-        """娣峰悎妫€绱?+ RRF铻嶅悎 + Rerank閲嶆帓"""
-        # 绗竴闃舵锛氬弻璺矖鍙洖
+        """混合检索 + RRF融合 + Rerank重排"""
+        # 第一阶段：双路粗召回
         bm25_results = bm25_retriever.invoke(query, k=5)
         vector_results = vector_retriever.invoke(query)
-        # RRF 铻嶅悎
+        # RRF 融合
         fused = rrf_fusion([bm25_results, vector_results])
-        # 绗簩闃舵锛欳rossEncoder 绮炬帓
+        # 第二阶段：CrossEncoder 精排
         reranked = reranker.rerank(query, fused, top_k=3) 
         return reranked  
 
@@ -375,12 +392,12 @@ def build_advanced_rag(vectorstore, documents, reranker, embeddings):
     return chain
 
 
-# ========== 7. Naive RAG锛堝姣旂敤锛?==========
+# ========== 7. Naive RAG（对比用） ==========
 def build_naive_rag(vectorstore):
-    """Naive RAG锛氬彧鐢ㄥ悜閲忔绱紝鏃犳贩鍚堛€佹棤閲嶆帓"""
+    """Naive RAG：只用向量检索，无混合、无重排"""
     retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
     prompt = ChatPromptTemplate.from_template(
-        "鏍规嵁鍙傝€冭祫鏂欏洖绛旈棶棰樸€俓n\n鍙傝€冭祫鏂?\n{context}\n\n闂: {question}\n\n鍥炵瓟锛?)
+        "根据参考资料回答问题。\n\n参考资料:\n{context}\n\n问题: {question}\n\n回答：")
     llm = ChatOpenAI(api_key=ZHIPU_API_KEY, base_url=ZHIPU_BASE_URL, model="glm-4-flash", temperature=0.7)
     def format_docs(docs):
         return "\n\n".join(d.page_content for d in docs)
@@ -389,12 +406,12 @@ def build_naive_rag(vectorstore):
     return chain
 
 
-# ========== 8. 瀵规瘮娴嬭瘯 ==========
+# ========== 8. 对比测试 ==========
 def compare_rag(naive_chain, advanced_chain, questions):
-    """瀵规瘮 Naive RAG 鍜?Advanced RAG 鐨勫洖绛旀晥鏋?""
+    """对比 Naive RAG 和 Advanced RAG 的回答效果"""
     for i, q in enumerate(questions):
         print(f"\n{'=' * 60}")
-        print(f"闂 {i+1}: {q}")
+        print(f"问题 {i+1}: {q}")
         print(f"{'=' * 60}")
 
         naive_answer = naive_chain.invoke(q)
@@ -404,50 +421,51 @@ def compare_rag(naive_chain, advanced_chain, questions):
         print(f"\n  [Advanced RAG]\n    {advanced_answer[:200]}...")
 
 
-# ========== 涓诲嚱鏁?==========
+# ========== 主函数 ==========
 if __name__ == "__main__":
     try:
         print(f"[INFO] Milvus URI: {MILVUS_URI}")
-        print(f"[INFO] 杩愯鐜: {'Docker 瀹瑰櫒' if os.path.exists('/.dockerenv') else '鏈満'}")
+        print(f"[INFO] 运行环境: {'Docker 容器' if os.path.exists('/.dockerenv') else '本机'}")
 
-        # Step 1: 鍒涘缓骞惰В鏋?PDF
+        # Step 1: 创建并解析 PDF
         create_sample_pdf()
-        elements = partition_pdf(str(PDF_PATH)) # 瑙ｆ瀽 PDF锛屽緱鍒版寜鍏冪礌绫诲瀷鍒掑垎鐨勫唴瀹瑰潡
+        elements = partition_pdf(str(PDF_PATH)) # 解析 PDF，得到按元素类型划分的内容块
         documents = []
         for elem in elements:
             content = elem.text
             metadata = {**elem.metadata, "type": type(elem).__name__} 
-            #elem.metadata 鍖呭惈 page 鍜?is_table 淇℃伅锛宼ype(elem).__name__ 鍖呭惈鍏冪礌绫诲瀷锛圱itle銆丯arrativeText銆乀able銆丩istItem锛?            if isinstance(elem, Table):
-                content = f"[琛ㄦ牸鏁版嵁]\n{content}\n[琛ㄦ牸缁撴潫]"
+            #elem.metadata 包含 page 和 is_table 信息，type(elem).__name__ 包含元素类型（Title、NarrativeText、Table、ListItem）
+            if isinstance(elem, Table):
+                content = f"[表格数据]\n{content}\n[表格结束]"
             documents.append(Document(page_content=content, metadata=metadata))
-        print(f"[OK] 瑙ｆ瀽瀹屾垚: {len(documents)} 涓枃妗?)
+        print(f"[OK] 解析完成: {len(documents)} 个文档")
 
-        # Step 2: 瀛樺叆 Milvus
+        # Step 2: 存入 Milvus
         embeddings = FastEmbedEmbeddings(EMBEDDING_MODEL)
         vectorstore = MilvusVectorStore.from_documents(
             documents, embeddings, collection_name=COLLECTION_NAME, uri=MILVUS_URI)
 
-        # Step 3: 鍔犺浇 Rerank 妯″瀷
+        # Step 3: 加载 Rerank 模型
         reranker = Reranker()
 
-        # Step 4: 鏋勫缓涓ゆ潯 RAG 閾?        naive_chain = build_naive_rag(vectorstore)
+        # Step 4: 构建两条 RAG 链
+        naive_chain = build_naive_rag(vectorstore)
         advanced_chain = build_advanced_rag(vectorstore, documents, reranker, embeddings)
 
-        # Step 5: 瀵规瘮娴嬭瘯
+        # Step 5: 对比测试
         questions = [
-            "鏈夊摢浜涘悜閲忔暟鎹簱锛熷畠浠湁浠€涔堝尯鍒紵",
-            "RAG 绯荤粺濡備綍浼樺寲妫€绱㈢簿搴︼紵",
-            "Milvus 閫傚悎浠€涔堝満鏅紵",
+            "有哪些向量数据库？它们有什么区别？",
+            "RAG 系统如何优化检索精度？",
+            "Milvus 适合什么场景？",
         ]
         compare_rag(naive_chain, advanced_chain, questions)
 
         print(f"\n{'=' * 60}")
-        print("[OK] Week 2 鍛?Demo 瀹屾垚锛?)
-        print("Advanced RAG = 娣峰悎" \
-        "妫€绱?+ RRF铻嶅悎 + Rerank閲嶆帓 + Milvus")
-        print("鏍稿績鎻愬崌锛氭绱㈢簿搴﹀拰鍥炵瓟璐ㄩ噺鏄捐憲浼樹簬 Naive RAG")
+        print("[OK] Week 2 周 Demo 完成！")
+        print("Advanced RAG = 混合" \
+        "检索 + RRF融合 + Rerank重排 + Milvus")
+        print("核心提升：检索精度和回答质量显著优于 Naive RAG")
     except Exception as e:
         print(f"\n[ERROR] {e}")
         import traceback
         traceback.print_exc()
-

@@ -80,14 +80,14 @@ def create_access_token(username: str, role: str) -> str:
 app = FastAPI(title="JWT Login Basic Demo")
 
 
-@app.post("/login", response_model=TokenResponse)
+@app.post("/logwin", response_model=TokenResponse)
 def login(request: LoginRequest) -> TokenResponse:
     try:
         user = USERS_DB.get(request.username)
         if not user:
             raise HTTPException(status_code=401, detail="用户名或密码错误")
 
-        if not verify_password(request.password, user["password_hash"]):
+        if not verify_passord(request.password, user["password_hash"]):
             raise HTTPException(status_code=401, detail="用户名或密码错误")
 
         token = create_access_token(username=user["username"], role=user["role"])

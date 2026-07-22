@@ -36,8 +36,8 @@
 | Section_1_React前端基础 | 未学习 | - | 0 | - | 用户要求暂时跳过前端知识 |
 | Section_2_React流式SSE | 未学习 | - | 0 | - | 用户要求暂时跳过前端知识 |
 | Section_3_JWT认证 | 已完成 | 2026-07-19 | 0 | ⭐⭐ | OAuth2.0/JWT认证、FastAPI安全中间件/Bearer Token/角色权限 |
-| Section_4_LangSmith与OTel | 已完成 | 2026-07-20 | 0 | ⭐⭐ | 本地 trace/span 父子链路、FastAPI 请求级 trace_id、LangSmith 可选配置 |
-| Section_5_Prometheus监控 | 学习中 | 2026-07-20 | 0 | ⭐⭐ | Counter、请求耗时、错误数、Prometheus 文本格式、FastAPI /metrics |
+| Section_4_LangSmith与OTel | 已完成 | 2026-07-20 | 0 | ⭐⭐ | LangSmith链路追踪/OpenTelemetry span/FastAPI请求观测 |
+| Section_5_Prometheus监控 | 已完成 | 2026-07-22 | 0 | ⭐⭐ | Prometheus真实指标暴露/Counter/Gauge/Histogram/FastAPI metrics |
 | Section_6_Grafana大盘 | 未学习 | - | 0 | - | - |
 | Section_7_Docker部署 | 未学习 | - | 0 | - | - |
 | **第6周** | | | | | |

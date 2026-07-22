@@ -9,8 +9,6 @@ Demo 2: FastAPI 封装 RAG API — 全用现成组件
   GET  /health    — 健康检查
 """
 
-import os
-
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 from langchain_openai import ChatOpenAI
@@ -66,7 +64,7 @@ def retrieve(query: str, k: int = 3) -> list[Document]:
 
 # ========== LLM + RAG 链 ==========
 llm = ChatOpenAI(
-    api_key=os.getenv("ZHIPU_API_KEY"),
+    api_key="70041ddde9824461bfb02fac3f469fc3.pDZCoxOgkovIx1vT",
     base_url="https://open.bigmodel.cn/api/paas/v4/",
     model="glm-4-flash",
     temperature=0.3,

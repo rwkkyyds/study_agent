@@ -1,9 +1,12 @@
-﻿"""
-demo2_rag_agent.py - 鐭ヨ瘑搴撴绱?Agent锛圠angGraph StateGraph + FAISS锛?
-鐢ㄤ綘瀛﹁繃鐨勭粍浠讹細
+"""
+demo2_rag_agent.py - 知识库检索 Agent（LangGraph StateGraph + FAISS）
+
+用你学过的组件：
 - StateGraph + agent_node + should_continue + ToolNode
-- FAISS 鍚戦噺妫€绱紙Section 4 鐭ヨ瘑锛?- @tool 瀹氫箟妫€绱㈠伐鍏?
-渚濊禆锛歠aiss-cpu, langchain-openai, langgraph
+- FAISS 向量检索（Section 4 知识）
+- @tool 定义检索工具
+
+依赖：faiss-cpu, langchain-openai, langgraph
 """
 
 import sys, io, operator, logging
@@ -21,17 +24,17 @@ from langgraph.prebuilt import ToolNode
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
-ZHIPU_API_KEY = __import__("os").environ.get("ZHIPU_API_KEY")
+ZHIPU_API_KEY = "70041ddde9824461bfb02fac3f469fc3.pDZCoxOgkovIx1vT"
 ZHIPU_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/"
 
-# ========== 1. 鐭ヨ瘑搴?+ FAISS 绱㈠紩 ==========
+# ========== 1. 知识库 + FAISS 索引 ==========
 KNOWLEDGE = [
-    {"topic": "RAG", "content": "RAG閫氳繃妫€绱㈠閮ㄧ煡璇嗗簱澧炲己LLM鍥炵瓟銆傛祦绋嬶細鍒嗗潡鈫扙mbedding鈫掑悜閲忓簱鈫掓绱⑩啋Prompt鈫掔敓鎴愩€?},
-    {"topic": "Agent", "content": "Agent鏄嚜涓诲喅绛朅I绯荤粺銆俁eAct寰幆(鎬濊€冣啋琛屽姩鈫掕瀵?銆侺angGraph鏋勫缓宸ヤ綔娴併€?},
-    {"topic": "LangChain", "content": "LangChain鏄疞LM搴旂敤妗嗘灦銆傜粍浠讹細Prompt/LLM/Parser銆侺CEL绠￠亾绗︾粍鍚堛€?},
-    {"topic": "Milvus", "content": "Milvus鏄敓浜х骇鍚戦噺鏁版嵁搴撱€傛敮鎸佸崄浜跨骇鍚戦噺銆丠NSW/IVF绱㈠紩銆佸垎甯冨紡閮ㄧ讲銆?},
-    {"topic": "Embedding", "content": "Embedding鎶婃枃鏈浆鍚戦噺銆傛ā鍨嬶細OpenAI text-embedding-3-small銆丅GE绯诲垪銆?},
-    {"topic": "瀹归敊", "content": "Agent涓夌骇瀹归敊锛氬紓甯告崟鑾封啋鎸囨暟閫€閬块噸璇?tenacity)鈫扚allback宸ュ叿閾鹃檷绾с€?},
+    {"topic": "RAG", "content": "RAG通过检索外部知识库增强LLM回答。流程：分块→Embedding→向量库→检索→Prompt→生成。"},
+    {"topic": "Agent", "content": "Agent是自主决策AI系统。ReAct循环(思考→行动→观察)。LangGraph构建工作流。"},
+    {"topic": "LangChain", "content": "LangChain是LLM应用框架。组件：Prompt/LLM/Parser。LCEL管道符组合。"},
+    {"topic": "Milvus", "content": "Milvus是生产级向量数据库。支持十亿级向量、HNSW/IVF索引、分布式部署。"},
+    {"topic": "Embedding", "content": "Embedding把文本转向量。模型：OpenAI text-embedding-3-small、BGE系列。"},
+    {"topic": "容错", "content": "Agent三级容错：异常捕获→指数退避重试(tenacity)→Fallback工具链降级。"},
 ]
 
 def build_faiss_index():
@@ -50,11 +53,11 @@ def build_faiss_index():
 
 faiss_index = build_faiss_index()
 
-# ========== 2. 妫€绱㈠伐鍏?==========
+# ========== 2. 检索工具 ==========
 @tool
 def knowledge_search(query: str) -> str:
-    """浠庣煡璇嗗簱妫€绱㈡妧鏈枃妗ｃ€傝緭鍏ラ棶棰樺叧閿瘝锛岃繑鍥炴渶鐩稿叧鏂囨。銆?""
-    logger.info(f"[妫€绱 {query}")
+    """从知识库检索技术文档。输入问题关键词，返回最相关文档。"""
+    logger.info(f"[检索] {query}")
     np.random.seed(hash(query) % (2**31))
     query_vec = np.random.randn(128).astype(np.float32)
     faiss.normalize_L2(query_vec.reshape(1, -1))
@@ -63,8 +66,8 @@ def knowledge_search(query: str) -> str:
     for score, idx in zip(scores[0], indices[0]):
         if idx < len(KNOWLEDGE):
             doc = KNOWLEDGE[idx]
-            results.append(f"[{doc['topic']}] {doc['content']} (鐩镐技搴?{score:.3f})")
-    return "\n---\n".join(results) if results else "鏈壘鍒扮浉鍏冲唴瀹广€?
+            results.append(f"[{doc['topic']}] {doc['content']} (相似度:{score:.3f})")
+    return "\n---\n".join(results) if results else "未找到相关内容。"
 
 TOOLS = [knowledge_search]
 
@@ -81,7 +84,7 @@ def should_continue(state: AgentState) -> str:
     last = state["messages"][-1]
     return "tools" if isinstance(last, AIMessage) and last.tool_calls else "end"
 
-# ========== 4. 鏋勫缓鍥?==========
+# ========== 4. 构建图 ==========
 def build_rag_agent():
     graph = StateGraph(AgentState)
     graph.add_node("agent", agent_node)
@@ -91,16 +94,15 @@ def build_rag_agent():
     graph.add_edge("tools", "agent")
     return graph.compile()
 
-# ========== 5. 婕旂ず ==========
+# ========== 5. 演示 ==========
 if __name__ == "__main__":
     print("=" * 60)
-    print("demo2: 鐭ヨ瘑搴撴绱?Agent锛圠angGraph + FAISS锛?)
+    print("demo2: 知识库检索 Agent（LangGraph + FAISS）")
     print("=" * 60)
 
     agent = build_rag_agent()
 
-    for q in ["浠€涔堟槸RAG锛屽師鐞嗘槸浠€涔?, "鍚戦噺鏁版嵁搴撴湁鍝簺閫夋嫨"]:
-        print(f"\n--- 闂: {q} ---")
+    for q in ["什么是RAG，原理是什么", "向量数据库有哪些选择"]:
+        print(f"\n--- 问题: {q} ---")
         result = agent.invoke({"messages": [HumanMessage(content=q)]})
-        print(f"[鏈€缁堝洖绛擼 {result['messages'][-1].content}")
-
+        print(f"[最终回答] {result['messages'][-1].content}")

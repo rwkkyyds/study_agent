@@ -3,31 +3,35 @@ __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
+.Python
+.env
+.env.*
 
 # Virtual environments
 .venv/
 venv/
 env/
 
-# Local environment and secrets
-.env
-.env.*
-*.pem
-*.key
-*.crt
-
-# Runtime output
-*.log
+# Local model/vector/database artifacts
+models/
+chroma_data/
+*.db
 *.sqlite
 *.sqlite3
-*.db
 
-# OS and editor files
+# Local tool/editor metadata
+.deep-copilot/
+.deepeval/
+.reasonix/
+.vscode/
+.idea/
+
+# Runtime/cache output
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.log
+
+# OS files
 .DS_Store
 Thumbs.db
-.idea/
-.vscode/
-

@@ -14,7 +14,6 @@
 
 import logging
 import hashlib
-import os
 import numpy as np
 import faiss
 from fastapi import FastAPI, HTTPException
@@ -77,7 +76,7 @@ def retrieve(query: str, k: int = 3) -> list[Document]:
 
 # ========== LLM + RAG 链（Section 2 + Section 5 学的） ==========
 llm = ChatOpenAI(
-    api_key=os.getenv("ZHIPU_API_KEY"),
+    api_key="70041ddde9824461bfb02fac3f469fc3.pDZCoxOgkovIx1vT",
     base_url="https://open.bigmodel.cn/api/paas/v4/",
     model="glm-4-flash",
     temperature=0.3,

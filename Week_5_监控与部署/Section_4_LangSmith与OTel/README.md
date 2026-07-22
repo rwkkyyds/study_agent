@@ -1,47 +1,99 @@
-# 第5周 Section_4：LangSmith 链路追踪与 OpenTelemetry 基础
+# 第5周 Section_4：LangSmith 链路追踪与 OpenTelemetry 可观测性基础
 
 ## 当前小节学习目标
 
-本节先用零新增依赖的方式理解可观测性，再了解 LangSmith 的可选接入方式：
+本节学习如何观察一次 AI 应用请求的完整执行链路。
 
-- 理解 trace、span、属性和状态的关系
-- 为一次 Agent/RAG 请求记录完整的父子调用链
-- 在 FastAPI 中生成请求级 trace id，并记录耗时、输入校验和异常
-- 了解 LangSmith 依赖环境变量和 API Key，可按需启用
+你需要先跑通下面这条链路：
+
+```text
+用户请求 -> 业务函数 -> LLM/Agent/RAG 子步骤 -> 生成 trace/span -> 本地或平台查看执行过程
+```
+
+学完本节你应该能做到：
+
+- 理解 trace、span、attribute、event 的基本含义
+- 用 LangSmith 给 LLM/Agent 调用加链路追踪
+- 用 OpenTelemetry 手动创建 span
+- 给 FastAPI 请求增加最小可观测性
+- 在没有在线 API Key 时也能本地运行 demo
 
 ## 前置知识与学习顺序
 
-已学习 Section_3 JWT 认证、FastAPI 路由和异常处理后，按下面顺序运行：
+建议按顺序运行：
 
-1. `demo1_otel_span_basic.py`：纯 Python 本地 trace/span 基础
-2. `demo2_fastapi_trace.py`：FastAPI 请求链路追踪
-3. `demo3_langsmith_optional.py`：LangSmith 可选配置检查，不配置 Key 也能运行
+1. `demo1_langsmith_trace.py`
+   - 重点：LangSmith `@traceable`、父子调用链、无 API Key 本地运行
+2. `demo2_otel_manual_span.py`
+   - 重点：OpenTelemetry span、attribute、event、异常记录
+3. `demo3_fastapi_otel.py`
+   - 重点：FastAPI 中间件、请求级 trace、HTTP 状态记录
 
 ## 代码运行方式
 
+进入当前目录：
+
 ```powershell
-cd "C:\Users\admin\Desktop\AI_Agent_8Weeks_Bootcamp_no_deps_20260720_144614\AI_Agent_8Weeks_Bootcamp\Week_5_监控与部署\Section_4_LangSmith与OTel"
-$py = "..\..\.venv\Scripts\python.exe"
-& $py demo1_otel_span_basic.py
-& $py demo3_langsmith_optional.py
-& $py -m uvicorn demo2_fastapi_trace:app --host 127.0.0.1 --port 8014
+cd "D:\agent_study_doc\AI_Agent_8Weeks_Bootcamp\Week_5_监控与部署\Section_4_LangSmith与OTel"
 ```
 
-打开 `http://127.0.0.1:8014/docs`，调用 `POST /agent/run`。响应中的 `trace_id` 可以关联服务日志和后续指标。
+运行 LangSmith demo：
+
+```powershell
+python demo1_langsmith_trace.py
+```
+
+运行 OpenTelemetry 手动 span demo：
+
+```powershell
+python demo2_otel_manual_span.py
+```
+
+运行 FastAPI 请求追踪 demo：
+
+```powershell
+python demo3_fastapi_otel.py
+```
+
+也可以启动 FastAPI 服务：
+
+```powershell
+uvicorn demo3_fastapi_otel:app --reload --port 8000
+```
+
+打开接口文档：
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+## 可选环境变量
+
+LangSmith 在线追踪需要配置：
+
+```powershell
+$env:LANGSMITH_TRACING="true"
+$env:LANGSMITH_API_KEY="你的 LangSmith API Key"
+$env:LANGSMITH_PROJECT="ai-agent-bootcamp"
+```
+
+如果没有配置 API Key，`demo1_langsmith_trace.py` 会关闭在线上报，只保留本地执行输出。
 
 ## 注意事项
 
-- 当前 demo 使用标准库生成教学用 trace，目的是先看懂父子 span 和生命周期；生产环境可以替换为 `opentelemetry-api` 与 `opentelemetry-sdk`。
-- LangSmith 需要 `LANGCHAIN_API_KEY`，并且会把链路数据发送到外部服务；没有 Key 时 demo 自动进入本地预览模式。
-- trace 属性不要写入密码、JWT、身份证号等敏感信息；输入内容也应按脱敏策略处理。
+- LangSmith 更偏向 LLM/Agent/RAG 链路追踪，适合看 Prompt、输入输出和工具调用过程。
+- OpenTelemetry 是通用可观测性标准，适合服务请求、数据库、队列、外部 HTTP 调用等系统链路。
+- 本节 demo 不强依赖在线服务，缺少 OpenTelemetry 包时会降级为本地输出，保证先跑通学习链路。
+- 生产环境通常会把 trace 发送到 Jaeger、Tempo、Grafana、Datadog、OTel Collector 等系统。
 
 ## 推荐复习内容
 
-- trace 与 span 的父子关系
-- 请求日志中的 correlation id / trace id
-- 记录成功、失败和耗时三个关键维度
-- 环境变量配置外部可观测平台
+- FastAPI 中间件
+- try-except 异常捕获
+- HTTP 请求状态码
+- Agent/RAG 中一次请求会拆成哪些子步骤
 
 ## 下一节学习预告
 
-下一节进入 **Prometheus 监控**，学习如何暴露 QPS、请求耗时、错误数等可抓取指标。
+下一节进入 **Prometheus 监控与业务/系统指标暴露**，重点学习 QPS、错误数、延迟直方图等指标。
+

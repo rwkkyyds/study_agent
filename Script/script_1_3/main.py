@@ -29,8 +29,6 @@ def get_student(student_id: int):
 
 
 
-import os
-
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_openai import ChatOpenAI
@@ -39,7 +37,7 @@ prompt  = ChatPromptTemplate.from_messages([
     ("human", "请解释一下什么是 {concept}？")
 ])
 llm = ChatOpenAI(
-    api_key=os.getenv("ZHIPU_API_KEY"),
+    api_key="70041ddde9824461bfb02fac3f469fc3.pDZCoxOgkovIx1vT",
     base_url="https://open.bigmodel.cn/api/paas/v4/",
     model="glm-4-flash",
     temperature=0.7,

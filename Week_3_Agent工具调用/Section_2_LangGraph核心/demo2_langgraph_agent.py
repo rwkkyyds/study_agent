@@ -1,10 +1,12 @@
-﻿"""
-Demo2: 鐢?LangGraph 鎵嬪姩鏋勫缓 ReAct Agent锛堢櫧鐩掔増锛? 
-ReAct Agent 鏄竴绉嶇粡鍏哥殑 Agent 鏋舵瀯锛?鏍稿績鎬濇兂鏄 Agent 鍦ㄦ帹鐞嗚繃绋嬩腑涓嶆柇寰幆锛氭€濊€冿紙Reasoning锛夆啋 琛屽姩锛圓cting锛夆啋 瑙傚療锛圤bservation锛夛紝
-鐩村埌瀹屾垚浠诲姟銆傛瘡涓€姝ワ紝Agent 閮藉彲浠ラ€夋嫨鐩存帴鍥炵瓟鐢ㄦ埛闂锛屾垨鑰呰皟鐢ㄥ伐鍏疯幏鍙栨洿澶氫俊鎭紝鍐嶇户缁帹鐞嗐€?鍔熻兘锛氱敤 StateGraph 鏄惧紡瀹氫箟 Agent 鐨勬帹鐞嗗惊鐜紝鑰岄潪 create_agent 榛戠洅
-鏍稿績锛欰gent Node 鈫?Conditional Edge 鈫?Tool Node 鈫?寰幆
-渚濊禆锛歭angchain-openai, langgraph, langchain-core锛堝凡鏈夛級
-鍓嶇疆锛氬厛杩愯 demo1_langgraph_basics.py 鐞嗚В StateGraph 鍩虹
+"""
+Demo2: 用 LangGraph 手动构建 ReAct Agent（白盒版）  
+ReAct Agent 是一种经典的 Agent 架构，
+核心思想是让 Agent 在推理过程中不断循环：思考（Reasoning）→ 行动（Acting）→ 观察（Observation），
+直到完成任务。每一步，Agent 都可以选择直接回答用户问题，或者调用工具获取更多信息，再继续推理。
+功能：用 StateGraph 显式定义 Agent 的推理循环，而非 create_agent 黑盒
+核心：Agent Node → Conditional Edge → Tool Node → 循环
+依赖：langchain-openai, langgraph, langchain-core（已有）
+前置：先运行 demo1_langgraph_basics.py 理解 StateGraph 基础
 """
 
 import sys
@@ -16,49 +18,60 @@ from typing import TypedDict, Annotated
 from langchain_openai import ChatOpenAI
 from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, BaseMessage 
-# ToolMessage 鏄伐鍏疯皟鐢ㄧ殑娑堟伅绫诲瀷锛屽寘鍚?tool_calls 瀛楁锛孡LM 璋冪敤宸ュ叿鏃惰繑鍥?ToolMessage锛岄噷闈㈡湁 tool_calls 鍒楄〃锛岃褰曚簡瑕佽皟鐢ㄥ摢浜涘伐鍏峰拰鍙傛暟銆?# BaseMessage 鏄墍鏈夋秷鎭被鍨嬬殑鍩虹被锛孉gentState 涓殑 messages 鏄?BaseMessage 鍒楄〃锛屽彲浠ュ寘鍚?HumanMessage銆丄IMessage銆乀oolMessage 绛変笉鍚岀被鍨嬬殑娑堟伅銆?from langgraph.graph import StateGraph, START, END 
-# START 鍜?END 鏄?StateGraph 涓殑鐗规畩鑺傜偣锛屽垎鍒〃绀哄浘鐨勫紑濮嬪拰缁撴潫銆?# START 鏄?Agent 鎺ㄧ悊鐨勫叆鍙ｏ紝END 鏄帹鐞嗗畬鎴愮殑鍑哄彛銆?# 鍦ㄦ瀯寤?StateGraph 鏃讹紝鎴戜滑浼氫粠 START 鑺傜偣鍑哄彂锛屽畾涔?Agent Node銆丆onditional Edge銆乀ool Node 绛夎妭鐐瑰拰杈癸紝鏈€缁堝彲鑳戒細鏈変竴浜涜矾寰勯€氬悜 END 鑺傜偣锛岃〃绀烘帹鐞嗙粨鏉熴€?from langgraph.prebuilt import ToolNode 
-# ToolNode 鏄?LangGraph 鎻愪緵鐨勯鏋勫缓鑺傜偣绫诲瀷锛岀敤浜庢墽琛屽伐鍏疯皟鐢ㄣ€?# 鎴戜滑鍦?StateGraph 涓坊鍔犱竴涓?ToolNode锛屼紶鍏ュ彲鐢ㄥ伐鍏峰垪琛紝ToolNode 浼氭牴鎹?LLM 鐨?tool_calls 鑷姩鎵ц鐩稿簲宸ュ叿锛屽苟灏嗙粨鏋滆拷鍔犲埌 State.messages 涓€?import operator
+# ToolMessage 是工具调用的消息类型，包含 tool_calls 字段，LLM 调用工具时返回 ToolMessage，里面有 tool_calls 列表，记录了要调用哪些工具和参数。
+# BaseMessage 是所有消息类型的基类，AgentState 中的 messages 是 BaseMessage 列表，可以包含 HumanMessage、AIMessage、ToolMessage 等不同类型的消息。
+from langgraph.graph import StateGraph, START, END 
+# START 和 END 是 StateGraph 中的特殊节点，分别表示图的开始和结束。
+# START 是 Agent 推理的入口，END 是推理完成的出口。
+# 在构建 StateGraph 时，我们会从 START 节点出发，定义 Agent Node、Conditional Edge、Tool Node 等节点和边，最终可能会有一些路径通向 END 节点，表示推理结束。
+from langgraph.prebuilt import ToolNode 
+# ToolNode 是 LangGraph 提供的预构建节点类型，用于执行工具调用。
+# 我们在 StateGraph 中添加一个 ToolNode，传入可用工具列表，ToolNode 会根据 LLM 的 tool_calls 自动执行相应工具，并将结果追加到 State.messages 中。
+import operator
 
 
-# ========== 閰嶇疆 ==========
-ZHIPU_API_KEY = __import__("os").environ.get("ZHIPU_API_KEY")
+# ========== 配置 ==========
+ZHIPU_API_KEY = "70041ddde9824461bfb02fac3f469fc3.pDZCoxOgkovIx1vT"
 ZHIPU_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/"
 
 
-# ========== 1. 瀹氫箟宸ュ叿 ==========
+# ========== 1. 定义工具 ==========
 @tool
 def calculator(expression: str) -> str:
-    """璁＄畻鏁板琛ㄨ揪寮忋€傛敮鎸佸姞鍑忎箻闄ゃ€佸箓杩愮畻銆佸紑鏂圭瓑銆?    杈撳叆绀轰緥: '2 + 3 * 4', 'sqrt(16)', '2 ** 10'
+    """计算数学表达式。支持加减乘除、幂运算、开方等。
+    输入示例: '2 + 3 * 4', 'sqrt(16)', '2 ** 10'
     """
     try:
-        allowed = {k: v for k, v in math.__dict__.items() if not k.startswith("_")} # 鍏佽 math 妯″潡涓殑鍑芥暟锛堝 sqrt銆乸ow 绛夛級
-        result = eval(expression, {"__builtins__": {}}, allowed) # 绂佹璁块棶鍐呯疆鍑芥暟锛岄槻姝㈠畨鍏ㄩ闄?        return str(result)
+        allowed = {k: v for k, v in math.__dict__.items() if not k.startswith("_")} # 允许 math 模块中的函数（如 sqrt、pow 等）
+        result = eval(expression, {"__builtins__": {}}, allowed) # 禁止访问内置函数，防止安全风险
+        return str(result)
     except Exception as e:
-        return f"璁＄畻閿欒: {e}"
+        return f"计算错误: {e}"
 
 
 @tool
 def knowledge_base(query: str) -> str:
-    """鏌ヨ鍐呴儴鐭ヨ瘑搴擄紝鑾峰彇鎶€鏈枃妗ｃ€佷骇鍝佷俊鎭瓑銆?    褰撶敤鎴烽棶鍒版妧鏈蹇碉紙濡?RAG銆丄gent銆丷eAct銆丮ilvus銆丩angGraph锛夋椂浣跨敤姝ゅ伐鍏枫€?    """
+    """查询内部知识库，获取技术文档、产品信息等。
+    当用户问到技术概念（如 RAG、Agent、ReAct、Milvus、LangGraph）时使用此工具。
+    """
     kb = {
-        "rag": "RAG锛堟绱㈠寮虹敓鎴愶級= 妫€绱㈠閮ㄧ煡璇?+ LLM 鐢熸垚鍥炵瓟銆傛牳蹇冪粍浠讹細鏂囨。瑙ｆ瀽銆佸悜閲忓寲銆佸悜閲忓簱銆佹绱€侀噸鎺掋€佺敓鎴愩€?,
-        "agent": "Agent = LLM锛堝ぇ鑴戯級+ Tools锛堟墜鑴氾級+ 鎺ㄧ悊寰幆銆傛牳蹇冭兘鍔涳細鑷富鍐崇瓥璋冪敤鍝釜宸ュ叿銆佹寜浠€涔堥『搴忚皟鐢ㄣ€?,
-        "react": "ReAct = Reasoning + Acting銆傛瘡涓€姝ワ細Thought锛堟€濊€冿級鈫?Action锛堣鍔級鈫?Observation锛堣瀵燂級锛屽惊鐜洿鍒板畬鎴愪换鍔°€?,
-        "langgraph": "LangGraph 鏄?LangChain 鍥㈤槦鐨?Agent 妗嗘灦锛岀敤 StateGraph 鏄惧紡瀹氫箟宸ヤ綔娴侊紝姣?create_agent 鏇寸伒娲诲彲鎺с€?,
-        "milvus": "Milvus 鏄敓浜х骇鍚戦噺鏁版嵁搴擄紝鏀寔鍗佷嚎绾у悜閲忔绱紝Docker 閮ㄧ讲锛孒NSW 绱㈠紩銆?,
+        "rag": "RAG（检索增强生成）= 检索外部知识 + LLM 生成回答。核心组件：文档解析、向量化、向量库、检索、重排、生成。",
+        "agent": "Agent = LLM（大脑）+ Tools（手脚）+ 推理循环。核心能力：自主决策调用哪个工具、按什么顺序调用。",
+        "react": "ReAct = Reasoning + Acting。每一步：Thought（思考）→ Action（行动）→ Observation（观察），循环直到完成任务。",
+        "langgraph": "LangGraph 是 LangChain 团队的 Agent 框架，用 StateGraph 显式定义工作流，比 create_agent 更灵活可控。",
+        "milvus": "Milvus 是生产级向量数据库，支持十亿级向量检索，Docker 部署，HNSW 索引。",
     }
     query_lower = query.lower()
     results = []
     for key, value in kb.items():
         if key in query_lower:
             results.append(value)
-    return "\n".join(results) if results else f"鐭ヨ瘑搴撲腑鏈壘鍒颁笌 '{query}' 鐩稿叧鐨勪俊鎭€?
+    return "\n".join(results) if results else f"知识库中未找到与 '{query}' 相关的信息。"
 
 
 @tool
 def get_current_time() -> str:
-    """鑾峰彇褰撳墠鏃ユ湡鍜屾椂闂淬€傚綋鐢ㄦ埛闂?鐜板湪鍑犵偣'銆?浠婂ぉ鍑犲彿'鏃朵娇鐢ㄣ€?""
+    """获取当前日期和时间。当用户问'现在几点'、'今天几号'时使用。"""
     from datetime import datetime
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -66,19 +79,25 @@ def get_current_time() -> str:
 TOOLS = [calculator, knowledge_base, get_current_time]
 
 
-# ========== 2. 瀹氫箟 Agent State ==========
-# State 鏄浘涓祦鍔ㄧ殑鏁版嵁
-# messages 鐢?Annotated[list, operator.add] 琛ㄧず"杩藉姞"鑰岄潪"瑕嗙洊"
-# 杩欐牱姣忎釜 Node 鐨勮繑鍥炲€间細杩藉姞鍒版秷鎭垪琛紝鑰屼笉鏄浛鎹?class AgentState(TypedDict):
+# ========== 2. 定义 Agent State ==========
+# State 是图中流动的数据
+# messages 用 Annotated[list, operator.add] 表示"追加"而非"覆盖"
+# 这样每个 Node 的返回值会追加到消息列表，而不是替换
+class AgentState(TypedDict):
     messages: Annotated[list[BaseMessage], operator.add] 
-    #operators.add 琛ㄧず鍦?StateGraph 涓繖涓瓧娈电殑鏇存柊鏂瑰紡鏄拷鍔狅紙鑰岄潪瑕嗙洊锛夈€傛瘡娆?Agent Node 鎴?Tool Node 杩斿洖鏂扮殑娑堟伅鏃讹紝閮戒細杩藉姞鍒?messages 鍒楄〃涓紝淇濈暀瀹屾暣鐨勬秷鎭巻鍙层€?    #Annotated 鏄?Python 3.9+ 鐨勭被鍨嬫敞瑙ｅ伐鍏凤紝杩欓噷鐢ㄦ潵鏍囪 messages 鏄竴涓垪琛?
+    #operators.add 表示在 StateGraph 中这个字段的更新方式是追加（而非覆盖）。每次 Agent Node 或 Tool Node 返回新的消息时，都会追加到 messages 列表中，保留完整的消息历史。
+    #Annotated 是 Python 3.9+ 的类型注解工具，这里用来标记 messages 是一个列表
 
-# ========== 3. 瀹氫箟 Agent Node ==========
-# Agent Node 鐨勮亴璐ｏ細璋冪敤 LLM锛岃 LLM 鍐冲畾鏄洖绛旇繕鏄皟鐢ㄥ伐鍏?def agent_node(state: AgentState) -> dict:
+
+# ========== 3. 定义 Agent Node ==========
+# Agent Node 的职责：调用 LLM，让 LLM 决定是回答还是调用工具
+def agent_node(state: AgentState) -> dict:
     """
-    Agent 鑺傜偣锛氳皟鐢?LLM 鍐崇瓥
-    - 濡傛灉 LLM 鍐冲畾璋冪敤宸ュ叿 鈫?杩斿洖 tool_calls锛圓IMessage 甯?tool_calls锛?    - 濡傛灉 LLM 鍐冲畾鐩存帴鍥炵瓟 鈫?杩斿洖鏅€?AIMessage锛堟棤 tool_calls锛?    """
-    print("  [Agent Node] 璋冪敤 LLM 鍐崇瓥...")
+    Agent 节点：调用 LLM 决策
+    - 如果 LLM 决定调用工具 → 返回 tool_calls（AIMessage 带 tool_calls）
+    - 如果 LLM 决定直接回答 → 返回普通 AIMessage（无 tool_calls）
+    """
+    print("  [Agent Node] 调用 LLM 决策...")
 
     llm = ChatOpenAI(
         api_key=ZHIPU_API_KEY,
@@ -87,105 +106,134 @@ TOOLS = [calculator, knowledge_base, get_current_time]
         temperature=0,
     )
 
-    # 缁戝畾宸ュ叿锛岃 LLM 鐭ラ亾鏈夊摢浜涘伐鍏峰彲鐢?    llm_with_tools = llm.bind_tools(TOOLS)
+    # 绑定工具，让 LLM 知道有哪些工具可用
+    llm_with_tools = llm.bind_tools(TOOLS)
 
-    # 璋冪敤 LLM锛堜紶鍏ュ畬鏁存秷鎭巻鍙诧級
+    # 调用 LLM（传入完整消息历史）
     response = llm_with_tools.invoke(state["messages"])
 
-    # 鎵撳嵃 LLM 鐨勫喅绛?    if response.tool_calls:
+    # 打印 LLM 的决策
+    if response.tool_calls:
         for tc in response.tool_calls:
-            print(f"    鈫?LLM 鍐冲畾璋冪敤宸ュ叿: {tc['name']}({tc['args']})")
+            print(f"    → LLM 决定调用工具: {tc['name']}({tc['args']})")
     else:
-        print(f"    鈫?LLM 鍐冲畾鐩存帴鍥炵瓟")
+        print(f"    → LLM 决定直接回答")
 
-    # 杩斿洖杩藉姞鍒?messages 鐨勬柊娑堟伅
+    # 返回追加到 messages 的新消息
     return {"messages": [response]}
- #eg: {"messages": [AIMessage(content="鍥炵瓟鍐呭",  tool_calls=[{"name": "calculator", "args": {"expression": "2 + 2"}}])]} 
- # 鎴?{"messages": [AIMessage(content="鐩存帴鍥炵瓟鍐呭")]}锛? # StateGraph 浼氭牴鎹?tool_calls 鏄惁瀛樺湪鏉ュ垽鏂笅涓€姝ヨ蛋鍝釜鍒嗘敮銆?
+ #eg: {"messages": [AIMessage(content="回答内容",  tool_calls=[{"name": "calculator", "args": {"expression": "2 + 2"}}])]} 
+ # 或 {"messages": [AIMessage(content="直接回答内容")]}，
+ # StateGraph 会根据 tool_calls 是否存在来判断下一步走哪个分支。
 
-# ========== 4. 瀹氫箟 Conditional Edge ==========
-# 鍒ゆ柇鏄惁闇€瑕佺户缁皟鐢ㄥ伐鍏?def should_continue(state: AgentState) -> str:
+
+# ========== 4. 定义 Conditional Edge ==========
+# 判断是否需要继续调用工具
+def should_continue(state: AgentState) -> str:
     """
-    鏉′欢璺敱锛?    - 鏈€鍚庝竴鏉℃秷鎭湁 tool_calls 鈫?鍘?"tools" 鑺傜偣鎵ц宸ュ叿
-    - 鏈€鍚庝竴鏉℃秷鎭病鏈?tool_calls 鈫?缁撴潫
+    条件路由：
+    - 最后一条消息有 tool_calls → 去 "tools" 节点执行工具
+    - 最后一条消息没有 tool_calls → 结束
     """
     last_message = state["messages"][-1]
-    #eg: 鏈€鍚庝竴鏉℃秷鎭槸 
-    # AIMessage(content="鍥炵瓟鍐呭",  tool_calls=[{"name": "calculator", "args": {"expression": "2 + 2"}}])锛?    # 鍒欐湁宸ュ叿璋冪敤锛涘鏋滄槸 AIMessage(content="鐩存帴鍥炵瓟鍐呭") 鍒欐棤宸ュ叿璋冪敤銆?
+    #eg: 最后一条消息是 
+    # AIMessage(content="回答内容",  tool_calls=[{"name": "calculator", "args": {"expression": "2 + 2"}}])，
+    # 则有工具调用；如果是 AIMessage(content="直接回答内容") 则无工具调用。
+
     if isinstance(last_message, AIMessage) and last_message.tool_calls:
-        print("  [Conditional Edge] 鏈夊伐鍏疯皟鐢?鈫?鍘绘墽琛屽伐鍏?)
+        print("  [Conditional Edge] 有工具调用 → 去执行工具")
         return "tools"
     else:
-        print("  [Conditional Edge] 鏃犲伐鍏疯皟鐢?鈫?缁撴潫")
+        print("  [Conditional Edge] 无工具调用 → 结束")
         return "end"
 
 
-# ========== 5. 鏋勫缓 LangGraph Agent ==========
+# ========== 5. 构建 LangGraph Agent ==========
 def build_langgraph_agent() -> StateGraph:  
-    #StateGraph閫氫織鏄撴噦鐨勮灏辨槸涓€涓湁鍚戝浘锛岃妭鐐逛唬琛?Agent 鐨勪笉鍚岀姸鎬侊紙濡傛€濊€冦€佽鍔ㄣ€佽瀵燂級锛?    # 杈逛唬琛ㄧ姸鎬佷箣闂寸殑杞Щ锛堝鏉′欢鍒ゆ柇銆佸伐鍏疯皟鐢級銆傞€氳繃瀹氫箟 StateGraph锛屾垜浠彲浠ユ竻鏅板湴鎻忚堪 Agent 鐨勬帹鐞嗘祦绋嬪拰寰幆閫昏緫銆?    """
-    鐢?StateGraph 鎵嬪姩鏋勫缓 ReAct Agent锛?
-    鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?    鈹? START   鈹?    鈹斺攢鈹€鈹€鈹€鈹攢鈹€鈹€鈹€鈹€鈹?         鈹?    鈹屸攢鈹€鈹€鈹€鈻尖攢鈹€鈹€鈹€鈹€鈹?    鈹? agent   鈹?鈫?璋冪敤 LLM 鍐崇瓥
-    鈹斺攢鈹€鈹€鈹€鈹攢鈹€鈹€鈹€鈹€鈹?         鈹?    鈹屸攢鈹€鈹€鈹€鈻尖攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?    鈹?should_continue鈹?鈫?鏉′欢鍒ゆ柇
-    鈹斺攢鈹€鈹攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹攢鈹€鈹€鈹?       鈹?        鈹?    "tools"    "end"
-       鈹?        鈹?    鈹屸攢鈹€鈻尖攢鈹€鈹€鈹?    鈹?    鈹?tools 鈹?    鈹? 鈫?鎵ц宸ュ叿锛岀粨鏋滆拷鍔犲埌 messages
-    鈹斺攢鈹€鈹攢鈹€鈹€鈹?    鈹?       鈹?        鈹?       鈹斺攢鈹€鈹€鈹€鈹攢鈹€鈹€鈹€鈹?            鈹?       鍥炲埌 agent锛堝惊鐜級
+    #StateGraph通俗易懂的说就是一个有向图，节点代表 Agent 的不同状态（如思考、行动、观察），
+    # 边代表状态之间的转移（如条件判断、工具调用）。通过定义 StateGraph，我们可以清晰地描述 Agent 的推理流程和循环逻辑。
     """
-    graph = StateGraph(AgentState) # 瀹氫箟 StateGraph锛孲tate 绫诲瀷涓?AgentState
+    用 StateGraph 手动构建 ReAct Agent：
 
-    # 娣诲姞鑺傜偣
+    ┌─────────┐
+    │  START   │
+    └────┬─────┘
+         │
+    ┌────▼─────┐
+    │  agent   │ ← 调用 LLM 决策
+    └────┬─────┘
+         │
+    ┌────▼──────────┐
+    │ should_continue│ ← 条件判断
+    └──┬─────────┬───┘
+       │         │
+    "tools"    "end"
+       │         │
+    ┌──▼───┐     │
+    │ tools │     │  ← 执行工具，结果追加到 messages
+    └──┬───┘     │
+       │         │
+       └────┬────┘
+            │
+       回到 agent（循环）
+    """
+    graph = StateGraph(AgentState) # 定义 StateGraph，State 类型为 AgentState
+
+    # 添加节点
     graph.add_node("agent", agent_node)
     graph.add_node("tools", ToolNode(TOOLS))
 
-    # 娣诲姞杈?    graph.add_edge(START, "agent")                    # START 鈫?agent
+    # 添加边
+    graph.add_edge(START, "agent")                    # START → agent
 
-    # 鏉′欢杈癸細agent 鈫?should_continue 鈫?tools 鎴?end
+    # 条件边：agent → should_continue → tools 或 end
     graph.add_conditional_edges(
-        "agent",                                       # 浠?agent 鍑哄彂
-        should_continue,                               # 璺敱鍑芥暟
+        "agent",                                       # 从 agent 出发
+        should_continue,                               # 路由函数
         {
-            "tools": "tools",                          # 鏈夊伐鍏疯皟鐢?鈫?鍘?tools
-            "end": END                                 # 鏃犲伐鍏疯皟鐢?鈫?缁撴潫
+            "tools": "tools",                          # 有工具调用 → 去 tools
+            "end": END                                 # 无工具调用 → 结束
         }
     )
 
-    # tools 鎵ц瀹屽悗锛屽洖鍒?agent 缁х画鎺ㄧ悊
+    # tools 执行完后，回到 agent 继续推理
     graph.add_edge("tools", "agent")
 
     return graph.compile()
 
 
-# ========== 6. 杩愯娴嬭瘯 ==========
+# ========== 6. 运行测试 ==========
 def run_demo():
-    """杩愯 LangGraph Agent Demo"""
+    """运行 LangGraph Agent Demo"""
     agent = build_langgraph_agent()
 
     questions = [
-        "璁＄畻涓€涓?(15 * 8 + 120) / 4 绛変簬澶氬皯锛?,
-        "浠€涔堟槸 LangGraph锛熷畠鍜屼紶缁?Agent 鏈変粈涔堝尯鍒紵",
-        "鐜板湪鍑犵偣浜嗭紵鍙﹀甯垜绠椾竴涓?2 鐨?20 娆℃柟鏄灏戯紵",
+        "计算一下 (15 * 8 + 120) / 4 等于多少？",
+        "什么是 LangGraph？它和传统 Agent 有什么区别？",
+        "现在几点了？另外帮我算一下 2 的 20 次方是多少？",
     ]
 
     for i, q in enumerate(questions):
         print(f"\n{'=' * 60}")
-        print(f"闂 {i+1}: {q}")
+        print(f"问题 {i+1}: {q}")
         print("=" * 60)
 
         try:
-            # invoke 浼犲叆鍒濆娑堟伅
+            # invoke 传入初始消息
             result = agent.invoke({"messages": [HumanMessage(content=q)]})
 
-            # 鏈€鍚庝竴鏉℃秷鎭槸鏈€缁堝洖绛?            final_message = result["messages"][-1]
-            print(f"\n[鏈€缁堝洖绛擼 {final_message.content}")
+            # 最后一条消息是最终回答
+            final_message = result["messages"][-1]
+            print(f"\n[最终回答] {final_message.content}")
             
 
-            # 鎵撳嵃瀹屾暣娑堟伅閾撅紙璋冭瘯鐢級
-            print(f"\n--- 娑堟伅閾?({len(result['messages'])} 鏉? ---")
+            # 打印完整消息链（调试用）
+            print(f"\n--- 消息链 ({len(result['messages'])} 条) ---")
             for j, msg in enumerate(result["messages"]):
                 msg_type = type(msg).__name__
-                content_preview = msg.content[:80] if msg.content else "(鏃犲唴瀹?"
+                content_preview = msg.content[:80] if msg.content else "(无内容)"
                 if hasattr(msg, "tool_calls") and msg.tool_calls:
                     for tc in msg.tool_calls:
-                        print(f"  [{j}] {msg_type}: tool_call 鈫?{tc['name']}")
+                        print(f"  [{j}] {msg_type}: tool_call → {tc['name']}")
                 else:
                     print(f"  [{j}] {msg_type}: {content_preview}")
         except Exception as e:
@@ -194,35 +242,38 @@ def run_demo():
             traceback.print_exc()
 
 
-# ========== 涓诲嚱鏁?==========
+# ========== 主函数 ==========
 if __name__ == "__main__":
     try:
         print("=" * 60)
-        print("LangGraph ReAct Agent锛堢櫧鐩掔増锛?)
+        print("LangGraph ReAct Agent（白盒版）")
         print("=" * 60)
         print("""
-    涓?Section 1 鐨?create_agent 瀵规瘮锛?
-    create_agent锛堥粦鐩掞級:          LangGraph锛堢櫧鐩掞級:
-      涓€琛屼唬鐮佸垱寤?                   鎵嬪姩瀹氫箟姣忎釜鑺傜偣
-      鍐呴儴鑷姩澶勭悊寰幆                浣犳帶鍒跺惊鐜€昏緫
-      闅句互鑷畾涔?                     瀹屽叏鍙畾鍒?
-    鏈?Demo 灞曠ず LangGraph 鐨勬墜鍔ㄦ瀯寤鸿繃绋嬶細
-      1. Agent Node锛氳皟鐢?LLM 鍐崇瓥
-      2. Conditional Edge锛氬垽鏂槸鍚﹁皟鐢ㄥ伐鍏?      3. Tool Node锛氭墽琛屽伐鍏?      4. 寰幆锛歵ools 鈫?agent 鈫?鍒ゆ柇 鈫?...
+    与 Section 1 的 create_agent 对比：
+
+    create_agent（黑盒）:          LangGraph（白盒）:
+      一行代码创建                    手动定义每个节点
+      内部自动处理循环                你控制循环逻辑
+      难以自定义                      完全可定制
+
+    本 Demo 展示 LangGraph 的手动构建过程：
+      1. Agent Node：调用 LLM 决策
+      2. Conditional Edge：判断是否调用工具
+      3. Tool Node：执行工具
+      4. 循环：tools → agent → 判断 → ...
         """)
 
         run_demo()
 
         print(f"\n{'=' * 60}")
-        print("[OK] LangGraph Agent Demo 瀹屾垚锛?)
-        print("鏍稿績鏀惰幏锛?)
-        print("  1. LangGraph 鐢?StateGraph 鏄惧紡瀹氫箟 Agent 鎺ㄧ悊寰幆")
-        print("  2. Agent Node 璋冪敤 LLM 鍐崇瓥锛堝洖绛?or 璋冪敤宸ュ叿锛?)
-        print("  3. Conditional Edge 鎺у埗寰幆锛堢户缁皟鐢ㄥ伐鍏?or 缁撴潫锛?)
-        print("  4. Tool Node 鎵ц宸ュ叿锛岀粨鏋滆拷鍔犲埌 State.messages")
-        print("  5. 姣?create_agent 鏇寸伒娲伙紝鍙嚜瀹氫箟姣忎釜鐜妭")
+        print("[OK] LangGraph Agent Demo 完成！")
+        print("核心收获：")
+        print("  1. LangGraph 用 StateGraph 显式定义 Agent 推理循环")
+        print("  2. Agent Node 调用 LLM 决策（回答 or 调用工具）")
+        print("  3. Conditional Edge 控制循环（继续调用工具 or 结束）")
+        print("  4. Tool Node 执行工具，结果追加到 State.messages")
+        print("  5. 比 create_agent 更灵活，可自定义每个环节")
     except Exception as e:
         print(f"\n[ERROR] {e}")
         import traceback
         traceback.print_exc()
-

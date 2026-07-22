@@ -1,11 +1,15 @@
-﻿"""
-demo3_research_assistant.py - 瀹屾暣鐮旂┒鍔╂墜锛圵eek3 缁煎悎 Demo锛?
-鍏ㄩ儴鐢ㄤ綘瀛﹁繃鐨?LangGraph 缁勪欢锛?- S1: ReAct 鍐崇瓥锛坅gent_node + should_continue 寰幆锛?- S2: StateGraph + 鑺傜偣 + 杈?+ 鏉′欢璺敱
-- S3: @tool 瀹氫箟涓変釜宸ュ叿
-- S4: SQLite 鏁版嵁搴撴煡璇?- S5: MemorySaver 浼氳瘽璁板繂 + thread_id
-- S6: try-except 寮傚父澶勭悊
+"""
+demo3_research_assistant.py - 完整研究助手（Week3 综合 Demo）
 
-渚濊禆锛歠aiss-cpu, langchain-openai, langgraph
+全部用你学过的 LangGraph 组件：
+- S1: ReAct 决策（agent_node + should_continue 循环）
+- S2: StateGraph + 节点 + 边 + 条件路由
+- S3: @tool 定义三个工具
+- S4: SQLite 数据库查询
+- S5: MemorySaver 会话记忆 + thread_id
+- S6: try-except 异常处理
+
+依赖：faiss-cpu, langchain-openai, langgraph
 """
 
 import sys, io, operator, logging, sqlite3
@@ -24,28 +28,28 @@ from langgraph.checkpoint.memory import MemorySaver
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
-ZHIPU_API_KEY = __import__("os").environ.get("ZHIPU_API_KEY")
+ZHIPU_API_KEY = "70041ddde9824461bfb02fac3f469fc3.pDZCoxOgkovIx1vT"
 ZHIPU_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/"
 
-# ========== S4: SQLite 涓氬姟鏁版嵁搴?==========
+# ========== S4: SQLite 业务数据库 ==========
 db = sqlite3.connect(":memory:", check_same_thread=False)
 db.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, role TEXT, department TEXT)")
 db.executemany("INSERT INTO users VALUES (?,?,?,?)", [
-    (1, "寮犱笁", "AI宸ョ▼甯?, "鎶€鏈儴"),
-    (2, "鏉庡洓", "浜у搧缁忕悊", "浜у搧閮?),
-    (3, "鐜嬩簲", "鏁版嵁鍒嗘瀽甯?, "鏁版嵁閮?),
-    (4, "璧靛叚", "AI鏋舵瀯甯?, "鎶€鏈儴"),
-    (5, "瀛欎竷", "鍓嶇宸ョ▼甯?, "鎶€鏈儴"),
+    (1, "张三", "AI工程师", "技术部"),
+    (2, "李四", "产品经理", "产品部"),
+    (3, "王五", "数据分析师", "数据部"),
+    (4, "赵六", "AI架构师", "技术部"),
+    (5, "孙七", "前端工程师", "技术部"),
 ])
 
-# ========== FAISS 鐭ヨ瘑搴?==========
+# ========== FAISS 知识库 ==========
 KNOWLEDGE = [
-    {"topic": "RAG", "content": "RAG閫氳繃妫€绱㈠閮ㄧ煡璇嗗簱澧炲己LLM鍥炵瓟銆傛祦绋嬶細鍒嗗潡鈫扙mbedding鈫掑悜閲忓簱鈫掓绱⑩啋Prompt鈫掔敓鎴愩€?},
-    {"topic": "Agent", "content": "Agent鏄嚜涓诲喅绛朅I绯荤粺銆俁eAct寰幆(鎬濊€冣啋琛屽姩鈫掕瀵?銆侺angGraph鏋勫缓宸ヤ綔娴併€?},
-    {"topic": "LangChain", "content": "LangChain鏄疞LM搴旂敤妗嗘灦銆傜粍浠讹細Prompt/LLM/Parser銆侺CEL绠￠亾绗︾粍鍚堛€?},
-    {"topic": "Milvus", "content": "Milvus鏄敓浜х骇鍚戦噺鏁版嵁搴撱€傛敮鎸佸崄浜跨骇鍚戦噺銆丠NSW/IVF绱㈠紩銆佸垎甯冨紡閮ㄧ讲銆?},
-    {"topic": "Embedding", "content": "Embedding鎶婃枃鏈浆鍚戦噺銆傛ā鍨嬶細OpenAI text-embedding-3-small銆丅GE绯诲垪銆?},
-    {"topic": "瀹归敊", "content": "Agent涓夌骇瀹归敊锛氬紓甯告崟鑾封啋鎸囨暟閫€閬块噸璇?tenacity)鈫扚allback宸ュ叿閾鹃檷绾с€?},
+    {"topic": "RAG", "content": "RAG通过检索外部知识库增强LLM回答。流程：分块→Embedding→向量库→检索→Prompt→生成。"},
+    {"topic": "Agent", "content": "Agent是自主决策AI系统。ReAct循环(思考→行动→观察)。LangGraph构建工作流。"},
+    {"topic": "LangChain", "content": "LangChain是LLM应用框架。组件：Prompt/LLM/Parser。LCEL管道符组合。"},
+    {"topic": "Milvus", "content": "Milvus是生产级向量数据库。支持十亿级向量、HNSW/IVF索引、分布式部署。"},
+    {"topic": "Embedding", "content": "Embedding把文本转向量。模型：OpenAI text-embedding-3-small、BGE系列。"},
+    {"topic": "容错", "content": "Agent三级容错：异常捕获→指数退避重试(tenacity)→Fallback工具链降级。"},
 ]
 
 def build_faiss_index():
@@ -64,20 +68,20 @@ def build_faiss_index():
 
 faiss_index = build_faiss_index()
 
-# ========== S3: 涓変釜宸ュ叿锛堝甫 S6 寮傚父澶勭悊锛?=========
+# ========== S3: 三个工具（带 S6 异常处理）==========
 @tool
 def web_search(query: str) -> str:
-    """鎼滅储浜掕仈缃戣幏鍙栨渶鏂颁俊鎭€傜敤浜庢煡璇㈠疄鏃舵柊闂汇€佹妧鏈姩鎬併€?""
-    logger.info(f"[鎼滅储] {query}")
+    """搜索互联网获取最新信息。用于查询实时新闻、技术动态。"""
+    logger.info(f"[搜索] {query}")
     try:
-        return f"鎼滅储缁撴灉锛氬叧浜?{query}'锛岃棰嗗煙姝ｅ湪蹇€熷彂灞曪紝澶氬浼佷笟宸插姞澶ф姇鍏ャ€?
+        return f"搜索结果：关于'{query}'，该领域正在快速发展，多家企业已加大投入。"
     except Exception as e:
-        return f"[ERROR] 鎼滅储澶辫触: {e}"
+        return f"[ERROR] 搜索失败: {e}"
 
 @tool
 def knowledge_search(query: str) -> str:
-    """浠庣煡璇嗗簱妫€绱㈡妧鏈枃妗ｃ€傜敤浜庢煡璇AG銆丄gent銆丩angChain绛夋蹇点€?""
-    logger.info(f"[妫€绱 {query}")
+    """从知识库检索技术文档。用于查询RAG、Agent、LangChain等概念。"""
+    logger.info(f"[检索] {query}")
     try:
         np.random.seed(hash(query) % (2**31))
         query_vec = np.random.randn(128).astype(np.float32)
@@ -88,22 +92,22 @@ def knowledge_search(query: str) -> str:
             if idx < len(KNOWLEDGE):
                 doc = KNOWLEDGE[idx]
                 results.append(f"[{doc['topic']}] {doc['content']}")
-        return "\n---\n".join(results) if results else "鏈壘鍒扮浉鍏冲唴瀹广€?
+        return "\n---\n".join(results) if results else "未找到相关内容。"
     except Exception as e:
-        return f"[ERROR] 妫€绱㈠け璐? {e}"
+        return f"[ERROR] 检索失败: {e}"
 
 @tool
 def sql_query(sql: str) -> str:
-    """鎵цSQL鏌ヨ鏁版嵁搴撱€傝〃锛歶sers(id, name, role, department)銆傚彧鍏佽SELECT銆?""
+    """执行SQL查询数据库。表：users(id, name, role, department)。只允许SELECT。"""
     logger.info(f"[SQL] {sql}")
     try:
         if not sql.strip().upper().startswith("SELECT"):
-            return "[ERROR] 鍙厑璁?SELECT 鏌ヨ"
+            return "[ERROR] 只允许 SELECT 查询"
         cursor = db.execute(sql)
         rows = cursor.fetchall()
-        return f"鏌ヨ缁撴灉 ({len(rows)} 鏉?: {rows}"
+        return f"查询结果 ({len(rows)} 条): {rows}"
     except Exception as e:
-        return f"[ERROR] SQL鎵ц澶辫触: {e}"
+        return f"[ERROR] SQL执行失败: {e}"
 
 TOOLS = [web_search, knowledge_search, sql_query]
 
@@ -112,17 +116,17 @@ class AgentState(TypedDict):
     messages: Annotated[list[BaseMessage], operator.add]
 
 def agent_node(state: AgentState) -> dict:
-    """Agent 鑺傜偣锛氳皟鐢?LLM 鍐崇瓥"""
+    """Agent 节点：调用 LLM 决策"""
     llm = ChatOpenAI(api_key=ZHIPU_API_KEY, base_url=ZHIPU_BASE_URL, model="glm-4-flash", temperature=0)
     response = llm.bind_tools(TOOLS).invoke(state["messages"])
     return {"messages": [response]}
 
 def should_continue(state: AgentState) -> str:
-    """鏉′欢璺敱锛氭湁 tool_calls 鈫?tools锛涘惁鍒?鈫?end"""
+    """条件路由：有 tool_calls → tools；否则 → end"""
     last = state["messages"][-1]
     return "tools" if isinstance(last, AIMessage) and last.tool_calls else "end"
 
-# ========== S2+S5: 鏋勫缓鍥撅紙鍚?MemorySaver锛?=========
+# ========== S2+S5: 构建图（含 MemorySaver）==========
 def build_research_assistant():
     graph = StateGraph(AgentState)
     graph.add_node("agent", agent_node)
@@ -131,44 +135,43 @@ def build_research_assistant():
     graph.add_conditional_edges("agent", should_continue, {"tools": "tools", "end": END})
     graph.add_edge("tools", "agent")
 
-    # S5: MemorySaver 浼氳瘽璁板繂
+    # S5: MemorySaver 会话记忆
     memory = MemorySaver()
     return graph.compile(checkpointer=memory)
 
-# ========== 婕旂ず ==========
+# ========== 演示 ==========
 if __name__ == "__main__":
     print("=" * 60)
-    print("Week3 缁煎悎 Demo: 鐮旂┒鍔╂墜 Agent")
-    print("S1:ReAct鍐崇瓥 S2:LangGraph S3:宸ュ叿 S4:DB S5:璁板繂 S6:瀹归敊")
+    print("Week3 综合 Demo: 研究助手 Agent")
+    print("S1:ReAct决策 S2:LangGraph S3:工具 S4:DB S5:记忆 S6:容错")
     print("=" * 60)
 
     agent = build_research_assistant()
-    # S5: thread_id 闅旂浼氳瘽
+    # S5: thread_id 隔离会话
     config = {"configurable": {"thread_id": "research_session_001"}}
 
     tests = [
-        ("鎼滅储", "AI Agent 鏈€鏂拌繘灞?),
-        ("妫€绱?, "浠€涔堟槸RAG"),
-        ("SQL", "鏌ヨ鎶€鏈儴鏈夊灏戜汉"),
-        ("闂茶亰", "浣犲ソ"),
+        ("搜索", "AI Agent 最新进展"),
+        ("检索", "什么是RAG"),
+        ("SQL", "查询技术部有多少人"),
+        ("闲聊", "你好"),
     ]
 
     for label, query in tests:
         print(f"\n--- [{label}] {query} ---")
         try:
             result = agent.invoke({"messages": [HumanMessage(content=query)]}, config=config)
-            print(f"[鏈€缁堝洖绛擼 {result['messages'][-1].content}")
+            print(f"[最终回答] {result['messages'][-1].content}")
         except Exception as e:
-            logger.error(f"鎵ц澶辫触: {e}")
+            logger.error(f"执行失败: {e}")
             print(f"[ERROR] {e}")
 
     print("\n" + "=" * 60)
-    print("Week3 鐭ヨ瘑鐐瑰叏閮ㄤ覆鑱旓細")
-    print("  S1: Agent 鑷富鍐崇瓥璋冪敤鍝釜宸ュ叿锛圧eAct锛?)
+    print("Week3 知识点全部串联：")
+    print("  S1: Agent 自主决策调用哪个工具（ReAct）")
     print("  S2: StateGraph + agent_node + should_continue + ToolNode")
-    print("  S3: @tool 瀹氫箟鎼滅储/妫€绱?SQL涓変釜宸ュ叿")
-    print("  S4: SQLite 鏁版嵁搴?+ FAISS 鍚戦噺搴?)
-    print("  S5: MemorySaver 浼氳瘽璁板繂 + thread_id 闅旂")
-    print("  S6: try-except 寮傚父澶勭悊")
+    print("  S3: @tool 定义搜索/检索/SQL三个工具")
+    print("  S4: SQLite 数据库 + FAISS 向量库")
+    print("  S5: MemorySaver 会话记忆 + thread_id 隔离")
+    print("  S6: try-except 异常处理")
     print("=" * 60)
-
