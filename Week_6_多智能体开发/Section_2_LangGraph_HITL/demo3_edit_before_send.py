@@ -14,7 +14,7 @@ from typing import TypedDict
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
-from langgraph.types import Command, interrupt
+from langgraph.types import Command, interrupt     #Command 用于继续执行流程，interrupt 用于暂停流程等待人工输入
 
 
 class ReplyState(TypedDict):
