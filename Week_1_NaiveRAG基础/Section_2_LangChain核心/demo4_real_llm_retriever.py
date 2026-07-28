@@ -1,4 +1,4 @@
-"""
+﻿"""
 Demo 4: 真实 LLM 调用 + Retriever 概念 + 统一 Runnable 接口
 学习目标：
   1. 用 GLM API 真实调用 LLM，感受 Prompt | LLM | Parser 完整链路
@@ -17,7 +17,7 @@ from langchain_core.runnables import RunnableLambda, RunnablePassthrough
 
 # ========== 初始化 GLM（通过 OpenAI 兼容接口） ==========
 llm = ChatOpenAI(
-    api_key="70041ddde9824461bfb02fac3f469fc3.pDZCoxOgkovIx1vT",
+    api_key=os.getenv("ZHIPU_API_KEY", ""),
     base_url="https://open.bigmodel.cn/api/paas/v4/",
     model="glm-4-flash",
     temperature=0.7,

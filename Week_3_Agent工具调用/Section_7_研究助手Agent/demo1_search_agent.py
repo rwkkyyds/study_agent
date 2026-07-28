@@ -1,4 +1,4 @@
-"""
+﻿"""
 demo1_search_agent.py - 联网搜索 Agent（LangGraph StateGraph 手动构建）
 
 用你学过的 LangGraph 组件：
@@ -10,6 +10,7 @@ demo1_search_agent.py - 联网搜索 Agent（LangGraph StateGraph 手动构建�
 
 依赖：langchain-openai, langgraph, langchain-core
 """
+import os
 
 import sys, io, operator
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
@@ -22,7 +23,7 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode
 
 # ========== 配置 ==========
-ZHIPU_API_KEY = "70041ddde9824461bfb02fac3f469fc3.pDZCoxOgkovIx1vT"
+ZHIPU_API_KEY = os.getenv("ZHIPU_API_KEY", "")
 ZHIPU_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/"
 
 # ========== 1. 定义搜索工具 ==========

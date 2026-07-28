@@ -1,8 +1,9 @@
-"""
+﻿"""
 Demo1: RAGAs 评估框架
 核心指标：Faithfulness、Answer Relevancy、Context Precision、Context Recall
 注意：RAGAs 版本需与 langchain-community 兼容
 """
+import os
 
 import sys
 import io
@@ -23,7 +24,7 @@ from langchain_core.embeddings import Embeddings # LangChain Embeddings 基类
 from fastembed import TextEmbedding # 本地 BGE Embedding 模型
 
 # ========== GLM API 配置 ==========
-GLM_API_KEY = "70041ddde9824461bfb02fac3f469fc3.pDZCoxOgkovIx1vT"
+GLM_API_KEY = os.getenv("ZHIPU_API_KEY", "")
 GLM_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/"
 
 

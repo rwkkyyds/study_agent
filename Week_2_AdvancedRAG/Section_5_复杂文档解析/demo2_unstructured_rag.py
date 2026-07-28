@@ -1,4 +1,4 @@
-"""
+﻿"""
 Demo2: 复杂文档解析 + RAG 集成
 功能：PDF解析(按元素类型) → 表格/文本分离 → 分块 → Milvus → RAG问答
 核心：表格整体保留不切碎，转Markdown供LLM理解
@@ -34,7 +34,7 @@ MILVUS_URI = "http://localhost:19530"
 COLLECTION_NAME = "demo_rag_parsed_doc"
 EMBEDDING_MODEL = "BAAI/bge-small-zh-v1.5"
 VECTOR_DIM = 512
-ZHIPU_API_KEY = "70041ddde9824461bfb02fac3f469fc3.pDZCoxOgkovIx1vT"
+ZHIPU_API_KEY = os.getenv("ZHIPU_API_KEY", "")
 ZHIPU_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/"
 
 

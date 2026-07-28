@@ -1,9 +1,10 @@
-"""
+﻿"""
 Demo 1: 端到端 Naive RAG — 全用 LangChain 组件，不造轮子
 运行方式：python demo1_rag_pipeline.py
 
 数据流：文档 → RecursiveCharacterTextSplitter分块 → Embedding → FAISS → 检索 → GLM回答
 """
+import os
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
@@ -120,7 +121,7 @@ print("=" * 60)
 print("【5. RAG 链 = 检索 | Prompt | GLM | Parser】")
 
 llm = ChatOpenAI(
-    api_key="70041ddde9824461bfb02fac3f469fc3.pDZCoxOgkovIx1vT",
+    api_key=os.getenv("ZHIPU_API_KEY", ""),
     base_url="https://open.bigmodel.cn/api/paas/v4/",
     model="glm-4-flash",
     temperature=0.3,

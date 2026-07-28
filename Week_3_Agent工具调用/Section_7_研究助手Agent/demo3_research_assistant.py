@@ -1,4 +1,4 @@
-"""
+﻿"""
 demo3_research_assistant.py - 完整研究助手（Week3 综合 Demo）
 
 全部用你学过的 LangGraph 组件：
@@ -11,6 +11,7 @@ demo3_research_assistant.py - 完整研究助手（Week3 综合 Demo）
 
 依赖：faiss-cpu, langchain-openai, langgraph
 """
+import os
 
 import sys, io, operator, logging, sqlite3
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
@@ -28,7 +29,7 @@ from langgraph.checkpoint.memory import MemorySaver
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
-ZHIPU_API_KEY = "70041ddde9824461bfb02fac3f469fc3.pDZCoxOgkovIx1vT"
+ZHIPU_API_KEY = os.getenv("ZHIPU_API_KEY", "")
 ZHIPU_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/"
 
 # ========== S4: SQLite 业务数据库 ==========

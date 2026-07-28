@@ -1,4 +1,4 @@
-"""
+﻿"""
 Demo2: ReAct Agent 完整推理循环
 功能：定义工具 → 创建 ReAct Agent → 运行推理循环
 核心：理解 Thought → Action → Observation 的循环推理过程
@@ -6,6 +6,7 @@ Demo2: ReAct Agent 完整推理循环
 注意：langchain 1.3.x 使用 create_agent 新 API（基于 langgraph）
 前置：先运行 demo1_tool_basics.py 理解工具定义
 """
+import os
 
 import sys
 import io
@@ -18,7 +19,7 @@ from langchain.agents import create_agent
 
 
 # ========== 配置 ==========
-ZHIPU_API_KEY = "70041ddde9824461bfb02fac3f469fc3.pDZCoxOgkovIx1vT"
+ZHIPU_API_KEY = os.getenv("ZHIPU_API_KEY", "")
 ZHIPU_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/"
 
 

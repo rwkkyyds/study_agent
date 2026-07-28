@@ -1,3 +1,4 @@
+﻿import os
 from fastapi import FastAPI
 from pydantic import BaseModel
 from typing  import List
@@ -37,7 +38,7 @@ prompt  = ChatPromptTemplate.from_messages([
     ("human", "请解释一下什么是 {concept}？")
 ])
 llm = ChatOpenAI(
-    api_key="70041ddde9824461bfb02fac3f469fc3.pDZCoxOgkovIx1vT",
+    api_key=os.getenv("ZHIPU_API_KEY", ""),
     base_url="https://open.bigmodel.cn/api/paas/v4/",
     model="glm-4-flash",
     temperature=0.7,

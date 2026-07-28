@@ -1,4 +1,4 @@
-"""
+﻿"""
 Demo2: Milvus + LangChain RAG 集成（手写 VectorStore 适配器）
 功能：文档分块 → Embedding → 存入 Milvus → LangChain 检索链 → GLM 回答
 数据流：Documents → bge-small-zh Embedding → Milvus → Retriever → Prompt → GLM → 回答
@@ -6,6 +6,7 @@ Demo2: Milvus + LangChain RAG 集成（手写 VectorStore 适配器）
 前提：docker compose up -d 启动 Milvus 服务
 学习价值：理解 LangChain VectorStore 接口的本质（就是一个带 search 的存储）
 """
+import os
 
 import sys
 import io
@@ -27,7 +28,7 @@ MILVUS_URI = "http://localhost:19530"
 COLLECTION_NAME = "demo_rag_langchain"
 EMBEDDING_MODEL = "BAAI/bge-small-zh-v1.5"
 VECTOR_DIM = 512
-ZHIPU_API_KEY = "70041ddde9824461bfb02fac3f469fc3.pDZCoxOgkovIx1vT"
+ZHIPU_API_KEY = os.getenv("ZHIPU_API_KEY", "")
 ZHIPU_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/"
 
 

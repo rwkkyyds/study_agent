@@ -1,7 +1,8 @@
-"""
+﻿"""
 Demo2: 多查询改写（Multi-Query）检索
 核心思路：把一个问题从多个角度改写，分别检索，合并去重结果
 """
+import os
 
 import sys
 import io
@@ -15,7 +16,7 @@ from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings # 定义适配器类用来适配 FastEmbed 的 Embedding 输出到 LangChain 接口
 
 # ========== GLM API 配置 ==========
-GLM_API_KEY = "70041ddde9824461bfb02fac3f469fc3.pDZCoxOgkovIx1vT"
+GLM_API_KEY = os.getenv("ZHIPU_API_KEY", "")
 GLM_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/"
 
 

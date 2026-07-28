@@ -1,4 +1,4 @@
-"""
+﻿"""
 Demo2: 用 LangGraph 手动构建 ReAct Agent（白盒版）  
 ReAct Agent 是一种经典的 Agent 架构，
 核心思想是让 Agent 在推理过程中不断循环：思考（Reasoning）→ 行动（Acting）→ 观察（Observation），
@@ -8,6 +8,7 @@ ReAct Agent 是一种经典的 Agent 架构，
 依赖：langchain-openai, langgraph, langchain-core（已有）
 前置：先运行 demo1_langgraph_basics.py 理解 StateGraph 基础
 """
+import os
 
 import sys
 import io
@@ -31,7 +32,7 @@ import operator
 
 
 # ========== 配置 ==========
-ZHIPU_API_KEY = "70041ddde9824461bfb02fac3f469fc3.pDZCoxOgkovIx1vT"
+ZHIPU_API_KEY = os.getenv("ZHIPU_API_KEY", "")
 ZHIPU_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/"
 
 

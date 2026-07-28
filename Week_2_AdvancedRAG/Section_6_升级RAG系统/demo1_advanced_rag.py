@@ -1,4 +1,4 @@
-"""
+﻿"""
 Demo1: Advanced RAG 系统（Week 2 周 Demo）
 集成：复杂文档解析 + 混合检索(BM25+向量) + RRF融合 + Rerank重排 + Milvus
 对比：Naive RAG vs Advanced RAG 效果差异
@@ -41,7 +41,7 @@ MILVUS_URI = os.environ.get("MILVUS_URI", "http://localhost:19530")
 COLLECTION_NAME = "demo_advanced_rag"
 EMBEDDING_MODEL = "BAAI/bge-small-zh-v1.5"
 VECTOR_DIM = 512
-ZHIPU_API_KEY = "70041ddde9824461bfb02fac3f469fc3.pDZCoxOgkovIx1vT"
+ZHIPU_API_KEY = os.getenv("ZHIPU_API_KEY", "")
 ZHIPU_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/"
 RERANK_MODEL = os.environ.get("RERANK_MODEL", "ms-marco-MultiBERT-L-12")
 # FlashRank 重排模型（多语言，支持中英文），基于 onnxruntime，无需 PyTorch

@@ -1,4 +1,4 @@
-"""
+﻿"""
 demo2_rag_agent.py - 知识库检索 Agent（LangGraph StateGraph + FAISS）
 
 用你学过的组件：
@@ -8,6 +8,7 @@ demo2_rag_agent.py - 知识库检索 Agent（LangGraph StateGraph + FAISS）
 
 依赖：faiss-cpu, langchain-openai, langgraph
 """
+import os
 
 import sys, io, operator, logging
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
@@ -24,7 +25,7 @@ from langgraph.prebuilt import ToolNode
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
-ZHIPU_API_KEY = "70041ddde9824461bfb02fac3f469fc3.pDZCoxOgkovIx1vT"
+ZHIPU_API_KEY = os.getenv("ZHIPU_API_KEY", "")
 ZHIPU_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/"
 
 # ========== 1. 知识库 + FAISS 索引 ==========

@@ -1,4 +1,4 @@
-"""
+﻿"""
 Demo2: MCP + LangGraph 集成（Client 连接 Server → Agent 使用 MCP 工具）
 功能：启动 MCP Server → Client 发现工具 → 转换为 LangChain Tool → LangGraph Agent 调用
 核心：MCP 工具与 LangGraph Agent 的无缝集成
@@ -22,7 +22,7 @@ import operator
 
 
 # ========== 配置 ==========
-ZHIPU_API_KEY = "70041ddde9824461bfb02fac3f469fc3.pDZCoxOgkovIx1vT"
+ZHIPU_API_KEY = os.getenv("ZHIPU_API_KEY", "")
 ZHIPU_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/"
 
 # MCP Server 路径（demo1 的 Server）

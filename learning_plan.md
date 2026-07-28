@@ -105,7 +105,7 @@
 |------|------|------|----------|
 | Day36 | Section_1 | LangGraph高级工作流（条件分支、并行执行、子图） | 50min |
 | Day37 | Section_2 | LangGraph Human-in-the-Loop、检查点与状态恢复 | 50min |
-| Day38 | Section_3 | Agent SDK生态（Claude Code SDK、OpenAI Agents SDK、PydanticAI、MCP生态）——不绑定单一框架，学底层思想 | 50min |
+| Day38 | Section_3 | Agent SDK生态（Claude Code SDK、OpenAI Agents SDK、PydanitcAI、MCP生态）——不绑定单一框架，学底层思想 | 50min |
 | Day39 | Section_4 | AutoGen/CrewAI框架对比选型（压缩1天，了解即可） | 40min |
 | Day40 | Section_5 | 多智能体系统设计模式、异常处理与容错、周Demo | 50min |
 

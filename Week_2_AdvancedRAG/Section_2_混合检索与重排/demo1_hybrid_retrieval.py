@@ -1,7 +1,8 @@
-"""
+﻿"""
 Demo1: 混合检索（BM25 + 向量检索）+ RRF 融合
 核心思路：BM25擅长关键词精确匹配，向量检索擅长语义匹配，融合后效果最好
 """
+import os
 
 import sys
 import io
@@ -21,7 +22,7 @@ from langchain_core.retrievers import BaseRetriever
 #这个包的作用是提供检索器的基类，定义了检索器的接口规范，方便实现不同类型的检索器（如向量检索、BM25检索等）并在系统中统一调用。
 
 # ========== GLM API 配置 ==========
-GLM_API_KEY = "70041ddde9824461bfb02fac3f469fc3.pDZCoxOgkovIx1vT"
+GLM_API_KEY = os.getenv("ZHIPU_API_KEY", "")
 GLM_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/"
 
 

@@ -1,4 +1,4 @@
-"""
+﻿"""
 第1周 Demo：Naive RAG API
 融合 Section 1-6 所有知识点：
   - Section 1: FastAPI 路由、Pydantic 数据校验
@@ -11,6 +11,7 @@
 运行方式：python app.py
 访问文档：http://127.0.0.1:8000/docs
 """
+import os
 
 import logging
 import hashlib
@@ -76,7 +77,7 @@ def retrieve(query: str, k: int = 3) -> list[Document]:
 
 # ========== LLM + RAG 链（Section 2 + Section 5 学的） ==========
 llm = ChatOpenAI(
-    api_key="70041ddde9824461bfb02fac3f469fc3.pDZCoxOgkovIx1vT",
+    api_key=os.getenv("ZHIPU_API_KEY", ""),
     base_url="https://open.bigmodel.cn/api/paas/v4/",
     model="glm-4-flash",
     temperature=0.3,

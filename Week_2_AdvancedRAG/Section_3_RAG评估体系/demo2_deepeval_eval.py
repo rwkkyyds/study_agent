@@ -1,7 +1,8 @@
-"""
+﻿"""
 Demo2: DeepEval 评估框架
 特点：支持 pytest 集成、G-Eval 自定义评估、本地评估
 """
+import os
 
 import sys
 import io
@@ -19,7 +20,7 @@ from deepeval.models.base_model import DeepEvalBaseLLM # DeepEval LLM 基类
 from langchain_openai import ChatOpenAI
 
 # ========== GLM API 配置 ==========
-GLM_API_KEY = "70041ddde9824461bfb02fac3f469fc3.pDZCoxOgkovIx1vT"
+GLM_API_KEY = os.getenv("ZHIPU_API_KEY", "")
 GLM_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/"
 
 
