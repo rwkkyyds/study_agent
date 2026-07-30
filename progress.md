@@ -38,13 +38,13 @@
 | Section_3_JWT认证 | 已完成 | 2026-07-19 | 0 | ⭐⭐ | OAuth2.0/JWT认证、FastAPI安全中间件/Bearer Token/角色权限 |
 | Section_4_LangSmith与OTel | 已完成 | 2026-07-20 | 0 | ⭐⭐ | LangSmith链路追踪/OpenTelemetry span/FastAPI请求观测 |
 | Section_5_Prometheus监控 | 已完成 | 2026-07-22 | 0 | ⭐⭐ | Prometheus真实指标暴露/Counter/Gauge/Histogram/FastAPI metrics |
-| Section_6_Grafana大盘 | 未学习 | - | 0 | - | - |
+| Section_6_Grafana大盘 | 学习中 | 2026-07-30 | 0 | - | Grafana定位/大盘三要素/PromQL/Provisioning自动导入/P95分位 |
 | Section_7_Docker部署 | 未学习 | - | 0 | - | - |
 | **第6周** | | | | | |
 | Section_1_LangGraph高级工作流 | 未学习 | - | 0 | - | - |
 | Section_2_LangGraph HITL | 未学习 | - | 0 | - | - |
 | Section_3_Agent_SDK生态 | 未学习 | - | 0 | - | - |
-| Section_4_AutoGen_CrewAI对比 | 未学习 | - | 0 | - | - |
+| Section_4_AutoGen_CrewAI对比 | 学习中 | 2026-07-30 | 0 | - | 对话驱动vs任务驱动/GroupChat/speaker策略/kickoff流水线/context依赖 |
 | Section_5_多智能体设计模式 | 未学习 | - | 0 | - | - |
 | **第7-8周** | | | | | |
 | 项目一_智能客服后端 | 未学习 | - | 0 | - | - |

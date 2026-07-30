@@ -25,6 +25,8 @@ chroma_data/
 .reasonix/
 .vscode/
 .idea/
+.codepus/
+.codepus-todos.json
 
 # Runtime/cache output
 .pytest_cache/
