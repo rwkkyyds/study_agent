@@ -41,11 +41,11 @@
 | Section_6_Grafana大盘 | 学习中 | 2026-07-30 | 0 | - | Grafana定位/大盘三要素/PromQL/Provisioning自动导入/P95分位 |
 | Section_7_Docker部署 | 未学习 | - | 0 | - | - |
 | **第6周** | | | | | |
-| Section_1_LangGraph高级工作流 | 未学习 | - | 0 | - | - |
-| Section_2_LangGraph HITL | 未学习 | - | 0 | - | - |
-| Section_3_Agent_SDK生态 | 未学习 | - | 0 | - | - |
-| Section_4_AutoGen_CrewAI对比 | 学习中 | 2026-07-30 | 0 | - | 对话驱动vs任务驱动/GroupChat/speaker策略/kickoff流水线/context依赖 |
-| Section_5_多智能体设计模式 | 未学习 | - | 0 | - | - |
+| Section_1_LangGraph高级工作流 | 已完成 | 2026-07-31 | 0 | ⭐⭐⭐ | 并行审查工作流/条件路由工单分流/子图订单管线/StateGraph编译 |
+| Section_2_LangGraph HITL | 已完成 | 2026-07-31 | 0 | ⭐⭐ | interrupt暂停/Command恢复/退款审批工作流/编辑后发送 |
+| Section_3_Agent_SDK生态 | 已完成 | 2026-07-31 | 0 | ⭐⭐ | OpenAI Agents SDK/Pydantic-AI结构化输出/MCP工具形状/通用运行时 |
+| Section_4_AutoGen_CrewAI对比 | 已完成 | 2026-07-30 | 0 | ⭐⭐ | 对话驱动vs任务驱动/GroupChat/speaker策略/kickoff流水线/context依赖 |
+| Section_5_多智能体设计模式 | 已完成 | 2026-08-01 | 0 | ⭐⭐⭐ | 分层/对等/流水线三模式/超时重试降级熔断四层容错/第6周综合Demo |
 | **第7-8周** | | | | | |
 | 项目一_智能客服后端 | 未学习 | - | 0 | - | - |
 | 项目一_前端与部署 | 未学习 | - | 0 | - | - |
