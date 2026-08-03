@@ -38,7 +38,7 @@
 | Section_3_JWT认证 | 已完成 | 2026-07-19 | 0 | ⭐⭐ | OAuth2.0/JWT认证、FastAPI安全中间件/Bearer Token/角色权限 |
 | Section_4_LangSmith与OTel | 已完成 | 2026-07-20 | 0 | ⭐⭐ | LangSmith链路追踪/OpenTelemetry span/FastAPI请求观测 |
 | Section_5_Prometheus监控 | 已完成 | 2026-07-22 | 0 | ⭐⭐ | Prometheus真实指标暴露/Counter/Gauge/Histogram/FastAPI metrics |
-| Section_6_Grafana大盘 | 学习中 | 2026-07-30 | 0 | - | Grafana定位/大盘三要素/PromQL/Provisioning自动导入/P95分位 |
+| Section_6_Grafana大盘 | 已完成 | 2026-08-03 | 0 | ⭐⭐ | Grafana定位/大盘三要素/PromQL/Provisioning自动导入/P95分位/可视化链路 |
 | Section_7_Docker部署 | 未学习 | - | 0 | - | - |
 | **第6周** | | | | | |
 | Section_1_LangGraph高级工作流 | 已完成 | 2026-07-31 | 0 | ⭐⭐⭐ | 并行审查工作流/条件路由工单分流/子图订单管线/StateGraph编译 |
@@ -47,7 +47,7 @@
 | Section_4_AutoGen_CrewAI对比 | 已完成 | 2026-07-30 | 0 | ⭐⭐ | 对话驱动vs任务驱动/GroupChat/speaker策略/kickoff流水线/context依赖 |
 | Section_5_多智能体设计模式 | 已完成 | 2026-08-01 | 0 | ⭐⭐⭐ | 分层/对等/流水线三模式/超时重试降级熔断四层容错/第6周综合Demo |
 | **第7-8周** | | | | | |
-| 项目一_智能客服后端 | 未学习 | - | 0 | - | - |
+| 项目一_智能客服后端 | 学习中 | 2026-08-03 | 0 | - | 阶段三已完成：RAG模块（MockEmbedding/InMemoryVectorStore/TextChunker/Retriever）+ 测试21 passed；待推进Agent工作流 |
 | 项目一_前端与部署 | 未学习 | - | 0 | - | - |
 | 项目二_AI面试官后端 | 未学习 | - | 0 | - | - |
 | 项目二_AI面试官前端部署 | 未学习 | - | 0 | - | - |
