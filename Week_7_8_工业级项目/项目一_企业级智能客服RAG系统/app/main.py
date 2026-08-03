@@ -5,7 +5,6 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.api.auth import router as auth_router
 from app.core.config import get_settings
 from app.db.session import init_db
 
@@ -30,10 +29,6 @@ app = FastAPI(
     description="面向企业知识库和客服工单的 RAG 服务。",
     lifespan=lifespan,
 )
-
-# 注册路由
-app.include_router(auth_router)
-
 
 @app.get("/health", tags=["system"])
 def health_check() -> dict[str, str]:

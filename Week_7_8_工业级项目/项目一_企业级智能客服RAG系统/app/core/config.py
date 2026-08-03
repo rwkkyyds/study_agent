@@ -18,23 +18,6 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./rag_dev.db"
     db_echo: bool = False
 
-    # JWT 认证
-    jwt_secret_key: str = "change-me-in-env"
-    jwt_algorithm: str = "HS256"
-    jwt_expire_minutes: int = 60
-
-    # Redis（可选，默认使用内存缓存）
-    redis_url: str = ""
-
-    # Milvus（可选，默认关闭）
-    milvus_host: str = ""
-    milvus_port: str = "19530"
-
-    # LLM 配置（默认使用 mock 本地替身）
-    llm_provider: str = "mock"
-    llm_api_key: str = ""
-    llm_model: str = ""
-
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

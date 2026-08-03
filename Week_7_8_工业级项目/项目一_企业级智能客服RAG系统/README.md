@@ -54,18 +54,14 @@ docs/
 
 ## 项目目标
 
-第一版必须完成以下后端闭环：
+第一版完成后端骨架闭环：
 
-1. 用户登录和角色权限校验
-2. 企业知识库文档上传、解析、切分和入库
-3. 文档向量写入 Milvus，并保存文档元数据到 PostgreSQL
-4. 用户提问后执行 LangGraph 客服工作流
-5. 工作流支持知识库检索、订单查询和人工转接判断
-6. Redis 保存会话短期记忆并提供限流能力
-7. SQL Agent 只能通过受控工具访问业务数据，禁止直接执行任意 SQL
-8. 失败场景具备超时、重试、熔断和降级标记
-9. 提供健康检查、Prometheus 指标、结构化日志和基础链路追踪
-10. 使用 pytest 完成核心服务和 API 的可重复验证
+1. FastAPI 应用可启动，生命周期管理
+2. 环境变量配置通过 Pydantic Settings 集中管理
+3. SQLite 数据库会话（SQLAlchemy 2.0）
+4. 健康检查 + 版本号接口
+5. pytest 覆盖核心接口
+6. 目录结构为后续 PostgreSQL、Redis、Milvus 和 LangGraph 接入预留清晰边界
 
 ## 当前目录结构
 
@@ -77,21 +73,13 @@ docs/
 ├── app/
 │   ├── main.py                     # FastAPI 入口
 │   ├── core/config.py              # 配置管理
-│   ├── db/session.py               # 数据库会话
-│   ├── models/                     # 数据模型（User/Document/Ticket）
-│   ├── schemas/                    # Pydantic 请求/响应模型
-│   ├── services/auth.py            # 认证服务
-│   ├── api/auth.py                 # 认证 API
-│   ├── rag/                        # RAG 检索模块
-│   └── agent/                      # LangGraph 工作流（待实现）
+│   └── db/session.py               # 数据库会话
 ├── tests/
-│   ├── test_health.py              # 健康检查测试
-│   ├── test_auth.py                # 认证测试
-│   └── test_rag.py                 # RAG 测试
+│   └── test_health.py              # 健康检查测试
 ├── docs/                           # 项目文档
 │   ├── 01-项目总览/
 │   └── 02-阶段一_项目骨架/
-└── rag_dev.db                      # SQLite 开发数据库
+└── .gitignore
 ```
 
 ## 当前进度
@@ -103,46 +91,29 @@ docs/
 - 添加健康检查与版本接口
 - 建立 pytest 测试基线
 
-### 阶段二：身份认证与业务数据层 ✅ 已完成
+### 阶段二：身份认证与业务数据层 ⏳ 待开始
 
 - 数据模型：User、Document、Chunk、Ticket、Message
 - JWT 登录、角色权限和审计字段
 - 注册/登录/用户信息 API
 
-### 阶段三：知识库入库与检索 ✅ 已完成
+### 阶段三：知识库入库与检索 ⏳ 待开始
 
 - MockEmbedding（本地嵌入，无需 API Key）
 - InMemoryVectorStore（内存向量存储）
 - TextChunker（文档切分）
 - Retriever（查询 → 嵌入 → 搜索）
 
-### 阶段四：客服 LangGraph 工作流 🚧 进行中
+### 后续阶段 ⏳ 待开始
 
-- 意图分类
-- 知识库问答
-- 订单查询工具
-- 转人工路由
-- 会话记忆和状态恢复
-
-### 阶段五：企业级稳定性和可观测性 ⏳ 待开始
-
-- Redis 限流和缓存
-- 超时、重试、熔断、降级
-- Prometheus 指标、OpenTelemetry trace
-- Grafana dashboard
-
-### 阶段六：测试、容器化和项目文档 ⏳ 待开始
-
-- 单元测试、集成测试和 API 测试
-- Docker Compose 编排 PostgreSQL、Redis、Milvus 和应用
-- 运行手册、架构说明、故障排查和简历项目总结
+阶段四至六将在前三个阶段完成后逐步推进。
 
 ## 验证方式
 
 ```powershell
-# 运行全部测试
-.\.venv\Scripts\pytest tests/ -v
-# 预期：21 passed（2 health + 8 auth + 11 rag）
+# 运行阶段一测试
+python -m pytest tests/test_health.py -v
+# 预期：2 passed
 ```
 
 ## 学习方式
