@@ -54,14 +54,17 @@ docs/
 
 ## 项目目标
 
-第一版完成后端骨架闭环：
+第一版完成后端骨架上认证闭环：
 
 1. FastAPI 应用可启动，生命周期管理
 2. 环境变量配置通过 Pydantic Settings 集中管理
 3. SQLite 数据库会话（SQLAlchemy 2.0）
 4. 健康检查 + 版本号接口
-5. pytest 覆盖核心接口
-6. 目录结构为后续 PostgreSQL、Redis、Milvus 和 LangGraph 接入预留清晰边界
+5. JWT 用户注册、登录、身份校验
+6. 角色权限系统（admin/agent/customer）
+7. 数据模型（User/Document/Ticket/Message）
+8. pytest 覆盖核心接口
+9. 目录结构为后续 PostgreSQL、Redis、Milvus 和 LangGraph 接入预留清晰边界
 
 ## 当前目录结构
 
@@ -73,9 +76,14 @@ docs/
 ├── app/
 │   ├── main.py                     # FastAPI 入口
 │   ├── core/config.py              # 配置管理
-│   └── db/session.py               # 数据库会话
+│   ├── db/session.py               # 数据库会话
+│   ├── models/                     # 数据模型（User/Document/Ticket/Message）
+│   ├── schemas/                    # Pydantic 请求/响应模型
+│   ├── services/auth.py            # 认证服务
+│   └── api/auth.py                 # 认证 API
 ├── tests/
-│   └── test_health.py              # 健康检查测试
+│   ├── test_health.py              # 健康检查测试
+│   └── test_auth.py                # 认证测试
 ├── docs/                           # 项目文档
 │   ├── 01-项目总览/
 │   └── 02-阶段一_项目骨架/
@@ -91,7 +99,7 @@ docs/
 - 添加健康检查与版本接口
 - 建立 pytest 测试基线
 
-### 阶段二：身份认证与业务数据层 ⏳ 待开始
+### 阶段二：身份认证与业务数据层 ✅ 已完成
 
 - 数据模型：User、Document、Chunk、Ticket、Message
 - JWT 登录、角色权限和审计字段
@@ -111,9 +119,9 @@ docs/
 ## 验证方式
 
 ```powershell
-# 运行阶段一测试
-python -m pytest tests/test_health.py -v
-# 预期：2 passed
+# 运行全部测试
+python -m pytest tests/ -v
+# 预期：10 passed（2 health + 8 auth）
 ```
 
 ## 学习方式

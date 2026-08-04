@@ -23,8 +23,7 @@ connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite")
 
 engine = create_engine(DATABASE_URL, connect_args=connect_args, echo=settings.db_echo)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-
+#env_file=".env"：自动加载项目下 .env 文件里的环境变量；
 class Base(DeclarativeBase):
     """SQLAlchemy 声明式基类，所有模型继承此基类。"""
 

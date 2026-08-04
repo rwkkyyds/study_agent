@@ -14,14 +14,19 @@ class Settings(BaseSettings):
     environment: str = "development"
     log_level: str = "INFO"
 
-    # 数据库：默认 SQLite 本地开发，生产用 PostgreSQL
+# 数据库：默认 SQLite 本地开发，生产用 PostgreSQL
     database_url: str = "sqlite:///./rag_dev.db"
     db_echo: bool = False
 
+    # JWT 认证
+    jwt_secret_key: str = "change-me-in-env"
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 60
+
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=".env",   #env_file=".env"：自动加载项目下 .env 文件里的环境变量；
         env_file_encoding="utf-8",
-        case_sensitive=False,
+        case_sensitive=False,   # 环境变量名称**不区分大小写**
         extra="ignore",
     )
 
