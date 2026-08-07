@@ -6,7 +6,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.api.auth import router as auth_router
+from app.api.chat import router as chat_router
 from app.core.config import get_settings
+
 from app.db.session import init_db
 
 settings = get_settings()
@@ -33,6 +35,7 @@ app = FastAPI(
 
 # 注册路由
 app.include_router(auth_router)
+app.include_router(chat_router)
 
 @app.get("/health", tags=["system"])
 def health_check() -> dict[str, str]:
