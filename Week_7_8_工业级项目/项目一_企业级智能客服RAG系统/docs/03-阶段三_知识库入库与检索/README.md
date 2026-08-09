@@ -1,43 +1,109 @@
 # 阶段三：知识库入库与检索
 
-## 阶段目标
+> 把原始文本转换为可查询的向量记录，为阶段四客服工作流提供稳定、可替换的检索服务。
 
-建立一个不依赖外部 API Key、可测试、可替换存储后端的 RAG 检索内核，为阶段四客服工作流提供稳定的检索服务。
+## 一、为什么阶段二之后做知识库检索
 
-## 学习与阅读顺序
+阶段二已经有了用户和文档相关的数据模型，但“有文档”不等于“能回答问题”。客服系统需要一条独立的检索链路：
 
-1. `01-阶段三概述.md`：理解边界、分层和请求链路。
-2. `02-Embedding与向量存储.md`：理解向量生成与存储适配器。
-3. `03-文本分块与检索服务.md`：理解分块、索引和查询流程。
-4. `04-测试与企业化演进.md`：运行测试并了解生产替换路线。
-
-## 代码目录
-
-- `app/rag/embeddings.py`：`MockEmbedding`，稳定生成 768 维归一化向量。
-- `app/rag/vector_store.py`：`InMemoryVectorStore`，通过余弦相似度完成 Top-K 搜索。
-- `app/rag/chunker.py`：`TextChunker`，固定窗口和重叠切分。
-- `app/rag/retriever.py`：`Retriever`，组合 Embedding 与 Vector Store。
-- `tests/test_rag.py`：阶段三单元测试和服务级测试。
-
-## 运行方式
-
-在项目根目录执行：
-
-```powershell
-python -m pytest tests/test_rag.py -v
-python -m pytest tests/ -v
+```text
+原始文档 → 文本分块 → Embedding → 向量存储 → Top-K 检索
 ```
 
-## 企业级边界
+本阶段先实现内核，而不急于绑定真实 Embedding API 或 Milvus。这样可以用确定性 Mock Embedding 完成测试，先把分块、维度、排序和结果契约理解清楚。
 
-当前实现只负责检索内核，不负责 HTTP 路由、数据库写入和 LLM 生成。这样阶段四可以将 `Retriever` 作为 Agent Tool 注入，阶段五再接入 Redis 缓存、限流、监控和降级。
+## 二、本阶段架构
 
-生产环境将 `InMemoryVectorStore` 替换为 Milvus 适配器，保持 `upsert` 与 `search` 的应用层契约不变。当前本地替身用于快速测试，不宣称具备持久化、高可用或多副本能力。
+```text
+阶段四 Agent Tool / 业务入口
+          │
+          ▼
+       Retriever
+       │       │
+       ▼       ▼
+Embedding   VectorStore
+ Provider    Adapter
+       │       │
+MockEmbedding  InMemoryVectorStore
+```
 
-## 完成标准
+`Retriever` 只负责组合两个能力：Embedding 把文本转换为向量，Vector Store 保存和搜索向量。后续替换为真实模型或 Milvus 时，上层工作流不需要复制检索逻辑。
 
-- Mock Embedding 结果确定且维度固定。
-- 分块参数非法时快速失败。
-- 向量存储执行维度校验、覆盖写和 Top-K 排序。
-- Retriever 拒绝空查询，并返回稳定的领域结果。
-- 阶段三测试全部通过，且阶段一、二测试不回归。
+## 三、完整数据链路
+
+```text
+原始文档
+  │
+  ▼
+TextChunker.split_text
+  │  固定窗口 + 重叠区间
+  ▼
+Chunk.content / chunk_index
+  │
+  ▼
+MockEmbedding.embed_documents
+  │
+  ▼
+VectorRecord
+  │
+  ▼
+VectorStore.upsert
+
+用户问题
+  │
+  ▼
+MockEmbedding.embed_query
+  │
+  ▼
+VectorStore.search
+  │  余弦相似度 + Top-K
+  ▼
+RetrievedChunk
+```
+
+## 四、代码目录
+
+- `app/rag/embeddings.py`：稳定生成固定维度归一化向量。
+- `app/rag/vector_store.py`：内存向量记录、维度检查、覆盖写和相似度搜索。
+- `app/rag/chunker.py`：固定大小和重叠切分。
+- `app/rag/retriever.py`：组合 Embedding 与 Vector Store，返回领域结果。
+- `tests/test_rag.py`：Embedding、分块、向量存储和 Retriever 测试。
+
+## 五、关键设计原则
+
+### 1. 确定性
+
+同一文本在相同维度下生成相同向量，使测试和问题复现不依赖外部 API。
+
+### 2. 快速失败
+
+维度不一致、重叠长度非法和空查询在边界处立即抛出明确异常，而不是把错误带到深层搜索逻辑。
+
+### 3. 可替换
+
+应用层只依赖 `upsert` 和 `search` 等契约，不依赖内存字典的具体实现。生产环境可以替换 Milvus 适配器。
+
+### 4. 元数据可追踪
+
+`RetrievedChunk` 保留 `score` 和 `metadata`，便于回答中返回来源，也便于后续统计召回质量。
+
+## 六、运行方式
+
+```powershell
+.venv\Scripts\python.exe -m pytest tests/test_rag.py -v
+.venv\Scripts\python.exe -m pytest tests/ -v
+```
+
+## 七、当前边界
+
+当前阶段不实现真实文件上传、Milvus 网络连接、LLM 生成和客服路由。阶段四会把 `Retriever` 注入客服工具，阶段五再在客服入口补充限流、会话记忆、指标和降级。
+
+当前 `InMemoryVectorStore` 只适合本地开发和测试，不具备持久化、多副本和高可用能力。文档内容也不直接写入日志，不读取任意文件路径。
+
+## 八、完成标准
+
+- Mock Embedding 结果稳定且维度固定。
+- TextChunker 可以生成重叠分块，并拒绝非法参数。
+- VectorStore 执行维度校验、同 ID 覆盖和 Top-K 排序。
+- Retriever 拒绝空查询，并返回稳定的 `RetrievedChunk`。
+- 阶段三测试通过，阶段一和阶段二测试不回归。

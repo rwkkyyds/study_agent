@@ -23,6 +23,13 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60
 
+    # 阶段五稳定性：默认使用本地回退，生产环境可通过 Redis URL 启用共享状态
+    redis_url: str | None = None
+    rate_limit_requests: int = 60
+    rate_limit_window_seconds: int = 60
+    session_ttl_seconds: int = 3600
+    session_max_messages: int = 20
+
     model_config = SettingsConfigDict(
         env_file=".env",   #env_file=".env"：自动加载项目下 .env 文件里的环境变量；
         env_file_encoding="utf-8",
