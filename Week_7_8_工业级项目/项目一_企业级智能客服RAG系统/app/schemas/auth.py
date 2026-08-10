@@ -6,11 +6,10 @@ from pydantic import BaseModel, Field
 
 
 class RegisterRequest(BaseModel):
-    """用户注册请求体。"""
+    """用户注册请求体。注册成功默认为 customer 角色，管理员/客服由内部创建。"""
 
     username: str = Field(..., min_length=3, max_length=50, description="用户名")
     password: str = Field(..., min_length=6, max_length=100, description="密码")
-    role: str = Field(default="customer", pattern="^(admin|agent|customer)$", description="角色")
 
 
 class LoginRequest(BaseModel):

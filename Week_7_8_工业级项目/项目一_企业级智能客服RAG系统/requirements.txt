@@ -4,6 +4,7 @@ uvicorn
 httpx
 pytest
 sqlalchemy
+psycopg2-binary
 passlib[bcrypt]
 pyjwt
 langgraph

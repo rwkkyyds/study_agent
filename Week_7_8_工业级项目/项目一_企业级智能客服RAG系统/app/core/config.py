@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -29,6 +30,22 @@ class Settings(BaseSettings):
     rate_limit_window_seconds: int = 60
     session_ttl_seconds: int = 3600
     session_max_messages: int = 20
+
+    @field_validator("jwt_secret_key")
+    @classmethod
+    def validate_jwt_secret_key(cls, v: str, info) -> str:
+        """生产环境强制要求 JWT 密钥为强随机值（≥32 字节）。"""
+        environment = info.data.get("environment", "development")
+        if environment == "production":
+            if v == "change-me-in-env":
+                raise ValueError(
+                    "生产环境必须设置环境变量 JWT_SECRET_KEY，不能使用默认值"
+                )
+            if len(v.encode("utf-8")) < 32:
+                raise ValueError(
+                    f"JWT_SECRET_KEY 长度不足（当前 {len(v)} 字符），建议至少 32 字符"
+                )
+        return v
 
     model_config = SettingsConfigDict(
         env_file=".env",   #env_file=".env"：自动加载项目下 .env 文件里的环境变量；

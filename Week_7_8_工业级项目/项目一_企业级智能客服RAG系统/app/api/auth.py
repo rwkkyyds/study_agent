@@ -13,9 +13,9 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def register(request: RegisterRequest, db: Session = Depends(get_db)) -> User:
-    """注册新用户。"""
+    """注册新用户（固定 customer 角色，不接受客户端指定）。"""
 
-    return create_user(db=db, username=request.username, password=request.password, role=request.role)
+    return create_user(db=db, username=request.username, password=request.password, role="customer")
 
 
 @router.post("/login", response_model=TokenResponse)

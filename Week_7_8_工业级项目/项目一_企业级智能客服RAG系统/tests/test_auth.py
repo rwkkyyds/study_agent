@@ -43,11 +43,10 @@ class TestAuth:
     ME_URL = "/auth/me"
 
     def test_register_success(self):
-        """注册新用户成功。"""
+        """注册新用户成功，默认角色为 customer。"""
         response = client.post(self.REGISTER_URL, json={
             "username": "testuser",
             "password": "testpass123",
-            "role": "customer",
         })
         assert response.status_code == 201
         data = response.json()
