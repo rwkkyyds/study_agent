@@ -1,0 +1,175 @@
+"""企业级智能客服 RAG 系统 — Docker Compose 编排文件。
+
+使用方式：
+
+  # 构建并启动所有服务
+  docker compose up --build -d
+
+  # 查看日志
+  docker compose logs -f
+
+  # 停止所有服务
+  docker compose down -v
+
+  # 仅启动应用和必需依赖（跳过 Milvus）
+  docker compose up --build -d app
+
+环境变量文件：在项目目录下创建 .env 文件，参考 .env.example。
+"""
+
+name: enterprise-customer-service-rag
+
+services:
+
+  # ============================================================
+  # 应用服务
+  # ============================================================
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: enterprise-customer-service-rag:latest
+    container_name: rag-app
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_NAME=${APP_NAME:-enterprise-customer-service-rag}
+      - APP_VERSION=${APP_VERSION:-0.1.0}
+      - ENVIRONMENT=production
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DATABASE_URL=postgresql://rag_user:rag_password@postgres:5432/rag_db
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - JWT_ALGORITHM=HS256
+      - JWT_EXPIRE_MINUTES=${JWT_EXPIRE_MINUTES:-60}
+      - RATE_LIMIT_REQUESTS=${RATE_LIMIT_REQUESTS:-60}
+      - RATE_LIMIT_WINDOW_SECONDS=${RATE_LIMIT_WINDOW_SECONDS:-60}
+      - SESSION_TTL_SECONDS=${SESSION_TTL_SECONDS:-3600}
+      - SESSION_MAX_MESSAGES=${SESSION_MAX_MESSAGES:-20}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    networks:
+      - rag-network
+
+  # ============================================================
+  # PostgreSQL 数据库
+  # ============================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: rag-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=rag_user
+      - POSTGRES_PASSWORD=rag_password
+      - POSTGRES_DB=rag_db
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rag_user -d rag_db"]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
+    networks:
+      - rag-network
+
+  # ============================================================
+  # Redis 缓存与共享状态
+  # ============================================================
+  redis:
+    image: redis:7-alpine
+    container_name: rag-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      start_period: 5s
+      retries: 5
+    networks:
+      - rag-network
+
+  # ============================================================
+  # Milvus 向量数据库（可选，默认注释）
+  # 需要更多内存和磁盘空间，按需启用
+  # ============================================================
+  # milvus:
+  #   image: milvusdb/milvus:latest
+  #   container_name: rag-milvus
+  #   restart: unless-stopped
+  #   ports:
+  #     - "19530:19530"
+  #     - "9091:9091"
+  #   environment:
+  #     - ETCD_ENDPOINTS=etcd:2379
+  #     - MINIO_ADDRESS=minio:9000
+  #   volumes:
+  #     - milvus-data:/var/lib/milvus
+  #   depends_on:
+  #     - etcd
+  #     - minio
+  #   networks:
+  #     - rag-network
+
+  # etcd:
+  #   image: quay.io/coreos/etcd:v3.5.17
+  #   container_name: rag-etcd
+  #   restart: unless-stopped
+  #   environment:
+  #     - ETCD_AUTO_COMPACTION_MODE=revision
+  #     - ETCD_AUTO_COMPACTION_RETENTION=1000
+  #     - ETCD_QUOTA_BACKEND_BYTES=4294967296
+  #     - ETCD_DATA_DIR=/etcd
+  #   volumes:
+  #     - etcd-data:/etcd
+  #   networks:
+  #     - rag-network
+
+  # minio:
+  #   image: minio/minio:latest
+  #   container_name: rag-minio
+  #   restart: unless-stopped
+  #   ports:
+  #     - "9000:9000"
+  #     - "9001:9001"
+  #   environment:
+  #     - MINIO_ACCESS_KEY=minioadmin
+  #     - MINIO_SECRET_KEY=minioadmin
+  #   volumes:
+  #     - minio-data:/data
+  #   command: server /data --console-address ":9001"
+  #   networks:
+  #     - rag-network
+
+volumes:
+  postgres-data:
+    name: rag-postgres-data
+  redis-data:
+    name: rag-redis-data
+  # milvus-data:
+  #   name: rag-milvus-data
+  # etcd-data:
+  #   name: rag-etcd-data
+  # minio-data:
+  #   name: rag-minio-data
+
+networks:
+  rag-network:
+    name: rag-network
+    driver: bridge
