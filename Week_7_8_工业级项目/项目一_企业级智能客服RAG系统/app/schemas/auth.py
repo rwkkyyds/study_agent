@@ -19,6 +19,14 @@ class LoginRequest(BaseModel):
     password: str = Field(..., description="密码")
 
 
+class CreateUserRequest(BaseModel):
+    """管理员创建用户请求体。仅 admin 可调用，可指定任意角色。"""
+
+    username: str = Field(..., min_length=3, max_length=50, description="用户名")
+    password: str = Field(..., min_length=6, max_length=100, description="密码")
+    role: str = Field(default="customer", pattern="^(admin|agent|customer)$", description="角色")
+
+
 class TokenResponse(BaseModel):
     """登录成功返回的 JWT Token。"""
 

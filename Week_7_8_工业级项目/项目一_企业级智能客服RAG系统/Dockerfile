@@ -1,7 +1,5 @@
-"""企业级智能客服 RAG 系统 — 生产级 Dockerfile。
-
-构建策略：多阶段构建，分离依赖安装和运行时，最小化最终镜像体积。
-"""
+# 企业级智能客服 RAG 系统 — 生产级 Dockerfile
+# 构建策略：多阶段构建，分离依赖安装和运行时，最小化最终镜像体积
 
 # ============================================================
 # 阶段一：依赖安装
@@ -41,13 +39,16 @@ WORKDIR /app
 
 # 复制应用代码
 COPY app/ ./app/
+COPY alembic.ini ./alembic.ini
+COPY alembic/ ./alembic/
+COPY scripts/ ./scripts/
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready')" || exit 1
 
 # 暴露 API 端口
 EXPOSE 8000
 
 # 启动命令
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${UVICORN_WORKERS:-2}"]

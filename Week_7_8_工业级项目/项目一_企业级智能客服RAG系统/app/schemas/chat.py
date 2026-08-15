@@ -7,6 +7,10 @@ class ChatRequest(BaseModel):
     """普通客服对话请求。"""
 
     query: str = Field(..., min_length=1, max_length=2000, description="用户问题")
+    model: str | None = Field(
+        None,
+        description="通义千问模型名称，可选值：qwen-turbo / qwen-plus / qwen-max / qwen-coder-plus / qwen-coder-turbo",
+    )
 
 
 class SourceItem(BaseModel):
@@ -15,6 +19,7 @@ class SourceItem(BaseModel):
     id: str
     score: float
     metadata: dict = Field(default_factory=dict)
+    content: str | None = None
 
 
 class ChatResponse(BaseModel):
@@ -22,6 +27,7 @@ class ChatResponse(BaseModel):
 
     answer: str
     intent: str
+    model: str | None = Field(None, description="实际使用的模型名称")
     sources: list[SourceItem] = Field(default_factory=list)
     ticket_id: int | None = None
     order: dict | None = None

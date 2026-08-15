@@ -45,6 +45,8 @@ def test_workflow_knowledge_route_returns_sources(workflow):
     assert result["intent"] == "knowledge"
     assert "退款申请" in result["answer"]
     assert result["sources"][0]["id"] == "refund"
+    assert result["sources"][0]["content"]
+    assert "退款申请" in result["sources"][0]["content"]
 
 
 def test_workflow_order_route_returns_order_adapter_result(workflow):
@@ -66,8 +68,10 @@ def test_workflow_human_route_creates_ticket_and_message(workflow):
     assert result["ticket_id"] is not None
     ticket = db.query(Ticket).one()
 
-    assert len(ticket.messages) == 1
-    assert ticket.messages[0].sender_role == "system"
+    assert len(ticket.messages) == 2
+    assert ticket.messages[0].sender_role == "customer"
+    assert ticket.messages[0].content == "我想投诉，请转人工"
+    assert ticket.messages[1].sender_role == "system"
 
 
 def test_workflow_rejects_blank_query(workflow):

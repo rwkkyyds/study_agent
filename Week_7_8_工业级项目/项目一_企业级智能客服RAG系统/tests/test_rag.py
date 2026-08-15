@@ -3,7 +3,7 @@
 import pytest
 
 from app.rag.chunker import TextChunker
-from app.rag.embeddings import MockEmbedding
+from app.rag.embeddings import DashScopeEmbedding, MockEmbedding
 from app.rag.retriever import Retriever
 from app.rag.vector_store import InMemoryVectorStore, VectorRecord
 
@@ -24,6 +24,22 @@ def test_mock_embedding_supports_batch_order():
 
     assert len(vectors) == 2
     assert vectors[0] != vectors[1]
+
+
+def test_dashscope_embedding_batches_documents_without_calling_large_batch(monkeypatch):
+    embedding = DashScopeEmbedding(dimension=4, batch_size=10)
+    batch_sizes = []
+
+    def fake_call_api(texts: list[str]) -> list[list[float]]:
+        batch_sizes.append(len(texts))
+        return [[1.0, 0.0, 0.0, 0.0] for _ in texts]
+
+    monkeypatch.setattr(embedding, "_call_api", fake_call_api)
+
+    vectors = embedding.embed_documents([str(i) for i in range(25)])
+
+    assert len(vectors) == 25
+    assert batch_sizes == [10, 10, 5]
 
 
 def test_embedding_rejects_invalid_dimension():
@@ -70,6 +86,19 @@ def test_vector_store_replaces_same_id():
     assert store.search([0.0, 1.0])[0][0].text == "new"
 
 
+def test_vector_store_deletes_records_by_id():
+    store = InMemoryVectorStore(dimension=2)
+    store.upsert([
+        VectorRecord("a", [1.0, 0.0], "A"),
+        VectorRecord("b", [0.0, 1.0], "B"),
+    ])
+
+    store.delete(["a"])
+
+    assert store.count() == 1
+    assert store.search([1.0, 0.0], top_k=2)[0][0].id == "b"
+
+
 def test_vector_store_rejects_dimension_mismatch():
     store = InMemoryVectorStore(dimension=2)
 
@@ -90,6 +119,17 @@ def test_retriever_indexes_and_searches_chunks():
     assert len(results) == 1
     assert results[0].id == "chunk-1"
     assert results[0].metadata["document_id"] == 1
+
+
+def test_retriever_deletes_chunks_from_index():
+    retriever = Retriever(MockEmbedding(dimension=16))
+    retriever.index_chunks([
+        ("chunk-1", "退款规则和申请流程", {"document_id": 1}),
+    ])
+
+    retriever.delete_chunks(["chunk-1"])
+
+    assert retriever.vector_store.count() == 0
 
 
 def test_retriever_rejects_blank_query():

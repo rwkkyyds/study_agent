@@ -4,7 +4,11 @@ uvicorn
 httpx
 pytest
 sqlalchemy
+alembic
 psycopg2-binary
-passlib[bcrypt]
+bcrypt
 pyjwt
+redis
 langgraph
+dashscope>=1.20.0
+pymilvus>=2.4.0

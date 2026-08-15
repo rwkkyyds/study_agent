@@ -2,10 +2,10 @@
 
 from datetime import datetime, timedelta, timezone
 
+import bcrypt as _bcrypt
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from passlib.hash import pbkdf2_sha256
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -17,15 +17,15 @@ settings = get_settings()
 
 
 def hash_password(password: str) -> str:
-    """使用 PBKDF2-SHA256 哈希密码。"""
+    """使用 bcrypt 哈希密码（抗 GPU 暴力破解）。"""
 
-    return pbkdf2_sha256.hash(password)
+    return _bcrypt.hashpw(password.encode("utf-8"), _bcrypt.gensalt()).decode("utf-8")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """验证明文密码与哈希值是否匹配。"""
 
-    return pbkdf2_sha256.verify(plain_password, hashed_password)
+    return _bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
 
 
 def create_user(db: Session, username: str, password: str, role: str = "customer") -> User:
@@ -81,10 +81,11 @@ def get_current_user(
         payload = jwt.decode(
             token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm]
         )
-        user_id: int = int(payload.get("sub"))  # 子转换为字符串，需转回 int
-        if user_id is None:
+        subject = payload.get("sub")
+        if subject is None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="无效的 Token")
-    except jwt.PyJWTError:
+        user_id = int(subject)  # sub 在签发时转换为字符串，校验时转回 int
+    except (jwt.PyJWTError, TypeError, ValueError):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="无效的 Token")
 
     user = db.query(User).filter(User.id == user_id).first()
@@ -107,6 +108,22 @@ def require_role(required_role: str):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"需要 {required_role} 角色",
+            )
+        return current_user
+
+    return role_checker
+
+
+def require_any_role(*allowed_roles: str):
+    """FastAPI dependency factory: require any one of the allowed roles."""
+
+    allowed = set(allowed_roles)
+
+    def role_checker(current_user: User = Depends(get_current_user)) -> User:
+        if current_user.role not in allowed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"需要以下任一角色: {', '.join(sorted(allowed))}",
             )
         return current_user
 

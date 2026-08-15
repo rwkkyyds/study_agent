@@ -1,29 +1,6 @@
-"""企业级智能客服 RAG 系统 — Docker Compose 编排文件。
-
-使用方式：
-
-  # 构建并启动所有服务
-  docker compose up --build -d
-
-  # 查看日志
-  docker compose logs -f
-
-  # 停止所有服务
-  docker compose down -v
-
-  # 仅启动应用和必需依赖（跳过 Milvus）
-  docker compose up --build -d app
-
-环境变量文件：在项目目录下创建 .env 文件，参考 .env.example。
-"""
-
 name: enterprise-customer-service-rag
 
 services:
-
-  # ============================================================
-  # 应用服务
-  # ============================================================
   app:
     build:
       context: .
@@ -34,13 +11,19 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - APP_NAME=${APP_NAME:-enterprise-customer-service-rag}
-      - APP_VERSION=${APP_VERSION:-0.1.0}
-      - ENVIRONMENT=production
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - APP_NAME=enterprise-customer-service-rag
+      - APP_VERSION=0.1.0
+      - ENVIRONMENT=development
+      - LOG_LEVEL=INFO
+      - LOG_FORMAT=json
       - DATABASE_URL=postgresql://rag_user:rag_password@postgres:5432/rag_db
       - REDIS_URL=redis://redis:6379/0
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
+      - VECTOR_STORE_TYPE=milvus
+      - MILVUS_URI=http://milvus:19530
+      - MILVUS_COLLECTION_NAME=${MILVUS_COLLECTION_NAME:-rag_chunks}
+      - MILVUS_TOKEN=${MILVUS_TOKEN:-}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-local-docker-secret-key-change-before-prod-32chars}
       - JWT_ALGORITHM=HS256
       - JWT_EXPIRE_MINUTES=${JWT_EXPIRE_MINUTES:-60}
       - RATE_LIMIT_REQUESTS=${RATE_LIMIT_REQUESTS:-60}
@@ -52,24 +35,44 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+      milvus:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready')"]
       interval: 30s
       timeout: 5s
-      start_period: 15s
+      start_period: 20s
+      retries: 5
+    networks:
+      - rag-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: enterprise-customer-service-rag-frontend:latest
+    container_name: rag-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    depends_on:
+      app:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
       retries: 3
     networks:
       - rag-network
 
-  # ============================================================
-  # PostgreSQL 数据库
-  # ============================================================
   postgres:
     image: postgres:16-alpine
     container_name: rag-postgres
     restart: unless-stopped
-    ports:
-      - "5432:5432"
     environment:
       - POSTGRES_USER=rag_user
       - POSTGRES_PASSWORD=rag_password
@@ -85,15 +88,10 @@ services:
     networks:
       - rag-network
 
-  # ============================================================
-  # Redis 缓存与共享状态
-  # ============================================================
   redis:
     image: redis:7-alpine
     container_name: rag-redis
     restart: unless-stopped
-    ports:
-      - "6379:6379"
     volumes:
       - redis-data:/data
     healthcheck:
@@ -105,71 +103,79 @@ services:
     networks:
       - rag-network
 
-  # ============================================================
-  # Milvus 向量数据库（可选，默认注释）
-  # 需要更多内存和磁盘空间，按需启用
-  # ============================================================
-  # milvus:
-  #   image: milvusdb/milvus:latest
-  #   container_name: rag-milvus
-  #   restart: unless-stopped
-  #   ports:
-  #     - "19530:19530"
-  #     - "9091:9091"
-  #   environment:
-  #     - ETCD_ENDPOINTS=etcd:2379
-  #     - MINIO_ADDRESS=minio:9000
-  #   volumes:
-  #     - milvus-data:/var/lib/milvus
-  #   depends_on:
-  #     - etcd
-  #     - minio
-  #   networks:
-  #     - rag-network
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.18
+    container_name: rag-etcd
+    restart: unless-stopped
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+    command: >
+      etcd
+      --advertise-client-urls=http://127.0.0.1:2379
+      --listen-client-urls=http://0.0.0.0:2379
+      --data-dir=/etcd
+    volumes:
+      - etcd-data:/etcd
+    networks:
+      - rag-network
 
-  # etcd:
-  #   image: quay.io/coreos/etcd:v3.5.17
-  #   container_name: rag-etcd
-  #   restart: unless-stopped
-  #   environment:
-  #     - ETCD_AUTO_COMPACTION_MODE=revision
-  #     - ETCD_AUTO_COMPACTION_RETENTION=1000
-  #     - ETCD_QUOTA_BACKEND_BYTES=4294967296
-  #     - ETCD_DATA_DIR=/etcd
-  #   volumes:
-  #     - etcd-data:/etcd
-  #   networks:
-  #     - rag-network
+  minio:
+    image: minio/minio:RELEASE.2024-05-28T17-19-04Z
+    container_name: rag-minio
+    restart: unless-stopped
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    networks:
+      - rag-network
 
-  # minio:
-  #   image: minio/minio:latest
-  #   container_name: rag-minio
-  #   restart: unless-stopped
-  #   ports:
-  #     - "9000:9000"
-  #     - "9001:9001"
-  #   environment:
-  #     - MINIO_ACCESS_KEY=minioadmin
-  #     - MINIO_SECRET_KEY=minioadmin
-  #   volumes:
-  #     - minio-data:/data
-  #   command: server /data --console-address ":9001"
-  #   networks:
-  #     - rag-network
+  milvus:
+    image: milvusdb/milvus:v2.4.15
+    container_name: rag-milvus
+    restart: unless-stopped
+    command: ["milvus", "run", "standalone"]
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      - ETCD_ENDPOINTS=etcd:2379
+      - MINIO_ADDRESS=minio:9000
+    volumes:
+      - milvus-data:/var/lib/milvus
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    depends_on:
+      - etcd
+      - minio
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 5
+    networks:
+      - rag-network
 
 volumes:
   postgres-data:
     name: rag-postgres-data
   redis-data:
     name: rag-redis-data
-  # milvus-data:
-  #   name: rag-milvus-data
-  # etcd-data:
-  #   name: rag-etcd-data
-  # minio-data:
-  #   name: rag-minio-data
+  etcd-data:
+    name: rag-etcd-data
+  minio-data:
+    name: rag-minio-data
+  milvus-data:
+    name: rag-milvus-data
 
 networks:
   rag-network:
     name: rag-network
     driver: bridge
+

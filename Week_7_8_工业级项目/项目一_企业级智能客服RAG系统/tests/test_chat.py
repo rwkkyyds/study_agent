@@ -39,7 +39,30 @@ def test_chat_knowledge_route(client):
     assert "answer" in response.json()
 
 
+def test_chat_stream_returns_sse_events(client):
+    with client.stream("POST", "/chat/stream", json={"query": "退款规则是什么"}) as response:
+        body = response.read().decode("utf-8")
+
+    assert response.status_code == 200
+    assert "event: chat.started" in body
+    assert "event: chat.metadata" in body
+    assert "event: chat.delta" in body
+    assert "event: chat.done" in body
+
+
 def test_chat_validates_blank_query(client):
     response = client.post("/chat", json={"query": ""})
 
     assert response.status_code == 422
+
+
+def test_chat_forbids_agent_role():
+    app.dependency_overrides[get_current_user] = lambda: type(
+        "UserStub", (), {"id": 7, "role": "agent"}
+    )()
+
+    response = TestClient(app).post("/chat", json={"query": "请转人工"})
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "客服/管理员请使用客服工作台处理用户会话"
+    app.dependency_overrides.clear()
