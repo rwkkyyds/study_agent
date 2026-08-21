@@ -1,0 +1,38 @@
+"""应用入口。"""
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.api.auth import router as auth_router
+from app.api.health import router as health_router
+from app.api.interviews import router as interviews_router
+from app.api.question_bank import router as question_bank_router
+from app.api.resumes import router as resumes_router
+from app.core.config import get_settings
+
+
+def create_app() -> FastAPI:
+    """创建 FastAPI 应用，方便测试和后续扩展。"""
+
+    settings = get_settings()
+    app = FastAPI(
+        title=settings.app_name,
+        version=settings.app_version,
+        description="AI 面试官系统：简历理解、题目生成、AI 面试与评分报告。",
+    )
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    app.include_router(health_router)
+    app.include_router(auth_router)
+    app.include_router(resumes_router)
+    app.include_router(question_bank_router)
+    app.include_router(interviews_router)
+    return app
+
+
+app = create_app()

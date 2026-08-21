@@ -47,9 +47,9 @@
 | Section_4_AutoGen_CrewAI对比 | 已完成 | 2026-07-30 | 0 | ⭐⭐ | 对话驱动vs任务驱动/GroupChat/speaker策略/kickoff流水线/context依赖 |
 | Section_5_多智能体设计模式 | 已完成 | 2026-08-01 | 0 | ⭐⭐⭐ | 分层/对等/流水线三模式/超时重试降级熔断四层容错/第6周综合Demo |
 | **第7-8周** | | | | | |
-| 项目一_智能客服后端 | 学习中 | 2026-08-07 | 0 | ⭐⭐⭐⭐ | 阶段一至四已完成：认证与数据层、MockEmbedding、InMemoryVectorStore、TextChunker、Retriever、IntentClassifier、客服 Tools、LangGraph StateGraph、JWT 保护的 POST /chat；下一阶段为企业级稳定性 |
+| 项目一_智能客服后端 | 已完成 | 2026-08-15 | 0 | ⭐⭐⭐⭐ | 已完成全栈智能客服 RAG 系统：FastAPI、Next.js、JWT、RBAC、Milvus、Redis、PostgreSQL、Docker、知识库、工单转人工、SSE、测试与面试文档 |
 
-| 项目二_AI面试官后端 | 未学习 | - | 0 | - | - |
+| 项目二_AI面试官后端 | 学习中 | 2026-08-21 | 0 | ⭐⭐⭐⭐ | 阶段一至五已完成：项目骨架、JWT认证、SQLAlchemy落库、Alembic迁移、简历解析、岗位画像、LangGraph面试工作流、追问持久化、RAG题库检索、测试与阶段文档 |
 | 项目二_AI面试官前端部署 | 未学习 | - | 0 | - | - |
 | 系统设计面试 | 未学习 | - | 0 | - | - |
 | 简历与模拟面试 | 未学习 | - | 0 | - | - |

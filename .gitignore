@@ -13,7 +13,7 @@ venv/
 env/
 
 # Local model/vector/database artifacts
-models/
+/models/
 chroma_data/
 *.db
 *.sqlite
