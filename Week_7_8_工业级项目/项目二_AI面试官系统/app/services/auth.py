@@ -1,6 +1,7 @@
 """认证服务：密码哈希、JWT、当前用户解析和角色校验。"""
 
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 import bcrypt
 import jwt
@@ -14,6 +15,7 @@ from app.models.user import User
 
 security = HTTPBearer()
 settings = get_settings()
+FOLLOW_UP_STREAM_PURPOSE = "interview_follow_up_stream"
 
 
 def hash_password(password: str) -> str:
@@ -64,6 +66,46 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
     return jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
+def create_follow_up_stream_token(
+    *,
+    user_id: int,
+    session_id: str,
+    question_id: str,
+    answer: str,
+    expires_delta: timedelta | None = None,
+) -> str:
+    """生成仅用于追问 SSE 连接的短期 Token。"""
+
+    return create_access_token(
+        {
+            "purpose": FOLLOW_UP_STREAM_PURPOSE,
+            "sub": user_id,
+            "session_id": session_id,
+            "question_id": question_id,
+            "answer": answer,
+        },
+        expires_delta=expires_delta or timedelta(minutes=settings.stream_token_expire_minutes),
+    )
+
+
+def decode_follow_up_stream_token(token: str) -> dict[str, Any]:
+    """解析并校验追问 SSE Token。"""
+
+    try:
+        payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
+    except jwt.PyJWTError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="无效的流式 Token") from exc
+
+    required_fields = {"purpose", "sub", "session_id", "question_id", "answer"}
+    if payload.get("purpose") != FOLLOW_UP_STREAM_PURPOSE or not required_fields.issubset(payload):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="无效的流式 Token")
+    try:
+        payload["sub"] = int(payload["sub"])
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="无效的流式 Token") from exc
+    return payload
+
+
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db),
@@ -94,4 +136,3 @@ def require_role(required_role: str):
         return current_user
 
     return checker
-

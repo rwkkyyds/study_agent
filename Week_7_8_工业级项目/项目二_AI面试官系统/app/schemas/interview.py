@@ -1,5 +1,7 @@
 """AI 面试官系统请求与响应模型。"""
 
+from datetime import datetime
+
 from pydantic import BaseModel, Field
 
 
@@ -57,6 +59,18 @@ class InterviewFollowUpRequest(BaseModel):
     answer: str = Field(min_length=1)
 
 
+class FollowUpStreamTokenRequest(InterviewFollowUpRequest):
+    """创建 SSE 追问访问令牌的请求。"""
+
+
+class FollowUpStreamTokenResponse(BaseModel):
+    """SSE 追问访问令牌响应。"""
+
+    stream_token: str
+    token_type: str = "bearer"
+    expires_in: int
+
+
 class InterviewFollowUpResponse(BaseModel):
     """追问响应。"""
 
@@ -87,3 +101,53 @@ class InterviewReportResponse(BaseModel):
     follow_up_questions: list[str]
     learning_suggestions: list[str]
     workflow_trace: list[str] = Field(default_factory=list)
+
+
+class InterviewAnswerRecord(InterviewAnswer):
+    """已保存的候选人回答。"""
+
+    created_at: datetime
+
+
+class InterviewFollowUpRecord(BaseModel):
+    """已保存的追问记录。"""
+
+    question_id: str
+    answer: str
+    follow_up_questions: list[str]
+    reason: str
+    workflow_trace: list[str] = Field(default_factory=list)
+    created_at: datetime
+
+
+class InterviewSessionSummary(BaseModel):
+    """面试会话列表项。"""
+
+    session_id: str
+    job_title: str
+    difficulty: str
+    status: str
+    candidate_summary: str
+    question_count: int
+    answer_count: int
+    follow_up_count: int
+    overall_score: int | None = None
+    level: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class InterviewSessionListResponse(BaseModel):
+    """面试会话列表响应。"""
+
+    sessions: list[InterviewSessionSummary]
+
+
+class InterviewSessionDetailResponse(InterviewSessionSummary):
+    """面试会话详情响应。"""
+
+    resume_text: str
+    questions: list[InterviewQuestion]
+    answers: list[InterviewAnswerRecord]
+    follow_ups: list[InterviewFollowUpRecord]
+    report: InterviewReportResponse | None = None

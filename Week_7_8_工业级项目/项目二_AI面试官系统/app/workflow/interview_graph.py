@@ -21,6 +21,7 @@ from app.schemas.interview import (
     ScoreDimension,
 )
 from app.services.question_bank import QuestionBankRetriever
+from app.services.qwen_llm import QwenInterviewLLM, build_interview_llm
 
 
 @dataclass(frozen=True)
@@ -70,8 +71,13 @@ class InterviewGraphState:
 class InterviewWorkflow:
     """AI 面试官图式工作流门面。"""
 
-    def __init__(self, question_bank: QuestionBankRetriever | None = None) -> None:
+    def __init__(
+        self,
+        question_bank: QuestionBankRetriever | None = None,
+        llm: QwenInterviewLLM | None = None,
+    ) -> None:
         self.question_bank = question_bank or QuestionBankRetriever()
+        self.llm = llm if llm is not None else build_interview_llm()
 
     def generate_questions(self, request: InterviewQuestionRequest) -> InterviewSessionResponse:
         """运行：简历解析 -> 岗位画像 -> RAG 检索 -> 题目生成。"""
@@ -193,6 +199,7 @@ class InterviewWorkflow:
             raise ValueError("题目生成前必须先完成简历解析和岗位画像")
         state.questions = self._build_questions(state, state.resume_signals, state.job_profile)
         state.workflow_trace.append("question_generation_node")
+        self._qwen_question_enrichment_node(state)
 
     def _answer_analysis_node(self, state: InterviewGraphState) -> None:
         if not state.answer_text.strip():
@@ -223,6 +230,7 @@ class InterviewWorkflow:
             follow_ups.append(f"针对 {base_question_id}，请补充你在项目中的个人贡献边界。")
         state.follow_up_questions = follow_ups[:3]
         state.workflow_trace.append("follow_up_node")
+        self._qwen_follow_up_enrichment_node(state, base_question_id)
 
     def _scoring_node(self, state: InterviewGraphState) -> None:
         self._follow_up_node(state)
@@ -346,6 +354,44 @@ class InterviewWorkflow:
         if score >= 60:
             return "待定"
         return "风险较高"
+
+    def _qwen_question_enrichment_node(self, state: InterviewGraphState) -> None:
+        if self.llm is None:
+            return
+        try:
+            qwen_questions = self.llm.generate_questions(
+                resume_text=state.resume_text,
+                job_title=state.job_title,
+                difficulty=state.difficulty,
+                question_count=state.question_count,
+                current_questions=state.questions,
+            )
+        except RuntimeError:
+            state.workflow_trace.append("qwen_question_enrichment_skipped")
+            return
+
+        if not qwen_questions:
+            return
+        state.questions = [*state.questions[:2], *qwen_questions, *state.questions[2:]]
+        state.workflow_trace.append("qwen_question_enrichment_node")
+
+    def _qwen_follow_up_enrichment_node(self, state: InterviewGraphState, base_question_id: str | None) -> None:
+        if self.llm is None:
+            return
+        try:
+            follow_ups = self.llm.generate_follow_ups(
+                job_title=state.job_title,
+                question_id=base_question_id or "",
+                answer=state.answer_text,
+            )
+        except RuntimeError:
+            state.workflow_trace.append("qwen_follow_up_enrichment_skipped")
+            return
+
+        if not follow_ups:
+            return
+        state.follow_up_questions = follow_ups
+        state.workflow_trace.append("qwen_follow_up_enrichment_node")
 
     @staticmethod
     def _strengths(technical: int, structure: int, project: int) -> list[str]:

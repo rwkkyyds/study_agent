@@ -13,11 +13,17 @@ from app.models.resume import ResumeProfile
 from app.models.user import User
 from app.schemas.interview import (
     AnswerSubmissionRequest,
+    InterviewAnswerRecord,
+    InterviewFollowUpRecord,
     InterviewFollowUpRequest,
     InterviewFollowUpResponse,
+    InterviewQuestion,
     InterviewQuestionRequest,
     InterviewReportResponse,
+    InterviewSessionDetailResponse,
+    InterviewSessionListResponse,
     InterviewSessionResponse,
+    InterviewSessionSummary,
 )
 from app.workflow.interview import InterviewWorkflow
 
@@ -134,6 +140,82 @@ class InterviewPersistenceService:
         db.commit()
         return report
 
+    def get_owned_session(self, db: Session, current_user: User, session_id: str) -> InterviewSession | None:
+        """查询当前用户名下的面试会话，供 API 层做显式归属校验。"""
+
+        return self._get_user_session(db, current_user, session_id)
+
+    def get_owned_session_by_user_id(self, db: Session, user_id: int, session_id: str) -> InterviewSession | None:
+        """通过用户 ID 查询归属会话，用于短期 SSE Token 场景。"""
+
+        return (
+            db.query(InterviewSession)
+            .filter(
+                InterviewSession.session_id == session_id,
+                InterviewSession.user_id == user_id,
+            )
+            .first()
+        )
+
+    def list_owned_sessions(self, db: Session, current_user: User) -> InterviewSessionListResponse:
+        """返回当前用户的历史面试会话摘要。"""
+
+        sessions = (
+            db.query(InterviewSession)
+            .filter(InterviewSession.user_id == current_user.id)
+            .order_by(InterviewSession.created_at.desc(), InterviewSession.id.desc())
+            .all()
+        )
+        return InterviewSessionListResponse(sessions=[self._session_summary(session) for session in sessions])
+
+    def get_owned_session_detail(
+        self,
+        db: Session,
+        current_user: User,
+        session_id: str,
+    ) -> InterviewSessionDetailResponse | None:
+        """返回当前用户某次面试的完整详情。"""
+
+        session = self._get_user_session(db, current_user, session_id)
+        if session is None:
+            return None
+
+        summary = self._session_summary(session)
+        return InterviewSessionDetailResponse(
+            **summary.model_dump(),
+            resume_text=session.resume_text,
+            questions=[
+                InterviewQuestion(
+                    id=question.question_id,
+                    question_type=question.question_type,
+                    question=question.question,
+                    expected_points=question.expected_points,
+                    source=question.source,
+                )
+                for question in session.questions
+            ],
+            answers=[
+                InterviewAnswerRecord(
+                    question_id=answer.question_id,
+                    answer=answer.answer,
+                    created_at=answer.created_at,
+                )
+                for answer in session.answers
+            ],
+            follow_ups=[
+                InterviewFollowUpRecord(
+                    question_id=follow_up.question_id,
+                    answer=follow_up.answer,
+                    follow_up_questions=follow_up.follow_up_questions,
+                    reason=follow_up.reason,
+                    workflow_trace=follow_up.workflow_trace,
+                    created_at=follow_up.created_at,
+                )
+                for follow_up in session.follow_ups
+            ],
+            report=self._report_response(session),
+        )
+
     @staticmethod
     def _get_user_session(db: Session, current_user: User, session_id: str) -> InterviewSession | None:
         return (
@@ -179,3 +261,38 @@ class InterviewPersistenceService:
         while db.query(InterviewSession.id).filter(InterviewSession.session_id == f"{session_id}-{suffix}").first():
             suffix += 1
         return f"{session_id}-{suffix}"
+
+    @staticmethod
+    def _session_summary(session: InterviewSession) -> InterviewSessionSummary:
+        report = session.report
+        return InterviewSessionSummary(
+            session_id=session.session_id,
+            job_title=session.job_title,
+            difficulty=session.difficulty,
+            status=session.status,
+            candidate_summary=session.candidate_summary,
+            question_count=len(session.questions),
+            answer_count=len(session.answers),
+            follow_up_count=len(session.follow_ups),
+            overall_score=report.overall_score if report else None,
+            level=report.level if report else None,
+            created_at=session.created_at,
+            updated_at=session.updated_at,
+        )
+
+    @staticmethod
+    def _report_response(session: InterviewSession) -> InterviewReportResponse | None:
+        report = session.report
+        if report is None:
+            return None
+        return InterviewReportResponse(
+            session_id=session.session_id,
+            overall_score=report.overall_score,
+            level=report.level,
+            dimensions=report.dimensions,
+            strengths=report.strengths,
+            risks=report.risks,
+            follow_up_questions=report.follow_up_questions,
+            learning_suggestions=report.learning_suggestions,
+            workflow_trace=[],
+        )

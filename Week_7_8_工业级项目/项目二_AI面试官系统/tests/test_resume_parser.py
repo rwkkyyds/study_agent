@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.models.interview import InterviewSession
 from app.models.resume import ResumeProfile
 
@@ -50,6 +51,23 @@ def test_upload_markdown_resume_creates_profile(client, auth_headers):
     assert "FastAPI" in data["skills"]
     assert data["years_of_experience"] == 4
     assert "#" not in data["normalized_text"]
+
+
+def test_upload_resume_rejects_oversized_file(client, auth_headers, monkeypatch):
+    monkeypatch.setenv("MAX_UPLOAD_BYTES", "32")
+    get_settings.cache_clear()
+    content = "这是一个超过限制的简历文件，包含 FastAPI、Docker、RAG 和项目经验。".encode("utf-8")
+
+    try:
+        response = client.post(
+            "/resumes/upload",
+            files={"file": ("resume.txt", content, "text/plain")},
+            headers=auth_headers,
+        )
+    finally:
+        get_settings.cache_clear()
+
+    assert response.status_code == 413
 
 
 def test_resume_profile_is_user_scoped(client, auth_headers):

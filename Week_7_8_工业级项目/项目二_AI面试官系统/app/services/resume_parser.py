@@ -8,6 +8,7 @@ from io import BytesIO
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.models.resume import ResumeProfile
 from app.models.user import User
 from app.schemas.resume import ResumeParseRequest
@@ -70,6 +71,10 @@ class ResumeParserService:
         """解析上传的 text、markdown 或 PDF 文件并保存画像。"""
 
         content = await file.read()
+        max_upload_bytes = get_settings().max_upload_bytes
+        if len(content) > max_upload_bytes:
+            raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail="简历文件超过大小限制")
+
         source_type = self._detect_source_type(file.filename or "", file.content_type or "")
         if source_type == "pdf":
             raw_text = self._extract_pdf_text(content)
