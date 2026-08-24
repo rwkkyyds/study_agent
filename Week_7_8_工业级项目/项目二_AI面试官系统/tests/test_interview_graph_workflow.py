@@ -39,7 +39,7 @@ def test_follow_up_generates_and_persists(client, auth_headers, db_session: Sess
     assert "follow_up_node" in data["workflow_trace"]
 
     session = db_session.query(InterviewSession).filter_by(session_id=generated["session_id"]).one()
-    assert session.status == "follow_up_generated"
+    assert session.status == "running"
     saved = db_session.query(InterviewFollowUp).filter_by(session_db_id=session.id).one()
     assert saved.question_id == "q1"
     assert saved.follow_up_questions == data["follow_up_questions"]

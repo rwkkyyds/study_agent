@@ -148,7 +148,7 @@ class InterviewTaskStatusResponse(BaseModel):
     progress: int = Field(ge=0, le=100)
     message: str
     error: str | None = None
-    result: InterviewReportResponse | None = None
+    result: InterviewSessionResponse | InterviewFollowUpResponse | InterviewReportResponse | None = None
     created_at: datetime
     updated_at: datetime
 

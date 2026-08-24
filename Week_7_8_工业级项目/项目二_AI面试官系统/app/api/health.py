@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.db.session import get_db
+from app.services.llm_gateway import llm_gateway_status
+from app.services.interview_tasks import interview_worker_queue_status
 from app.services import redis_client
 
 router = APIRouter(tags=["health"])
@@ -57,6 +59,11 @@ def ready(db: Session = Depends(get_db)) -> dict:
             ) from exc
 
     dependencies.append({"name": "redis", "status": redis_status})
+    task_queue_status = interview_worker_queue_status()
+    dependencies.append(task_queue_status)
+
+    gateway_status = llm_gateway_status(settings)
+    dependencies.append(gateway_status)
 
     qwen_status = "disabled"
     if settings.llm_provider == "qwen":
@@ -71,6 +78,9 @@ def ready(db: Session = Depends(get_db)) -> dict:
     )
 
     return {
-        "status": "degraded" if qwen_status == "missing_api_key" else "ready",
+        "status": "degraded"
+        if gateway_status["status"] in {"missing_api_key", "unsupported_provider"}
+        or task_queue_status["status"] in {"misconfigured", "unsupported_backend"}
+        else "ready",
         "dependencies": dependencies,
     }

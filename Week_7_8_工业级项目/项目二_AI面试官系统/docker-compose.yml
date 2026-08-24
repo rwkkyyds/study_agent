@@ -29,6 +29,9 @@ services:
       API_RATE_LIMIT_WINDOW_SECONDS: ${API_RATE_LIMIT_WINDOW_SECONDS:-60}
       INTERVIEW_DRAFT_TTL_SECONDS: ${INTERVIEW_DRAFT_TTL_SECONDS:-86400}
       INTERVIEW_TASK_TTL_SECONDS: ${INTERVIEW_TASK_TTL_SECONDS:-86400}
+      INTERVIEW_TASK_QUEUE_BACKEND: redis
+      INTERVIEW_TASK_QUEUE_NAME: ${INTERVIEW_TASK_QUEUE_NAME:-queue:interview_tasks}
+      INTERVIEW_WORKER_POLL_TIMEOUT_SECONDS: ${INTERVIEW_WORKER_POLL_TIMEOUT_SECONDS:-5}
       MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-5242880}
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
@@ -46,6 +49,58 @@ services:
       interval: 30s
       timeout: 5s
       start_period: 30s
+      retries: 5
+    networks:
+      - interviewer-network
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ai-interviewer-system:latest
+    container_name: ai-interviewer-worker
+    restart: unless-stopped
+    command: ["python", "-m", "app.workers.interview_worker"]
+    environment:
+      APP_NAME: ai-interviewer-system
+      APP_VERSION: 0.1.0
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      DATABASE_URL: postgresql+psycopg://interviewer_user:${POSTGRES_PASSWORD:-interviewer_password}@postgres:5432/interviewer_db
+      REDIS_URL: redis://redis:6379/0
+      REDIS_SOCKET_TIMEOUT_SECONDS: ${REDIS_SOCKET_TIMEOUT_SECONDS:-2}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-local-docker-secret-key-change-before-prod-32chars}
+      JWT_ALGORITHM: HS256
+      JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-60}
+      REFRESH_TOKEN_EXPIRE_MINUTES: ${REFRESH_TOKEN_EXPIRE_MINUTES:-10080}
+      STREAM_TOKEN_EXPIRE_MINUTES: ${STREAM_TOKEN_EXPIRE_MINUTES:-5}
+      LOGIN_FAILURE_LIMIT: ${LOGIN_FAILURE_LIMIT:-5}
+      LOGIN_FAILURE_WINDOW_SECONDS: ${LOGIN_FAILURE_WINDOW_SECONDS:-300}
+      API_RATE_LIMIT_PER_MINUTE: ${API_RATE_LIMIT_PER_MINUTE:-30}
+      API_RATE_LIMIT_WINDOW_SECONDS: ${API_RATE_LIMIT_WINDOW_SECONDS:-60}
+      INTERVIEW_DRAFT_TTL_SECONDS: ${INTERVIEW_DRAFT_TTL_SECONDS:-86400}
+      INTERVIEW_TASK_TTL_SECONDS: ${INTERVIEW_TASK_TTL_SECONDS:-86400}
+      INTERVIEW_TASK_QUEUE_BACKEND: redis
+      INTERVIEW_TASK_QUEUE_NAME: ${INTERVIEW_TASK_QUEUE_NAME:-queue:interview_tasks}
+      INTERVIEW_WORKER_POLL_TIMEOUT_SECONDS: ${INTERVIEW_WORKER_POLL_TIMEOUT_SECONDS:-5}
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-5242880}
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+      DASHSCOPE_BASE_URL: ${DASHSCOPE_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      QWEN_MODEL: ${QWEN_MODEL:-qwen-plus}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-15}
+      LLM_MAX_RETRIES: ${LLM_MAX_RETRIES:-1}
+    depends_on:
+      app:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "from app.core.config import get_settings; from app.services.redis_client import get_redis_client; get_redis_client(get_settings()).ping()"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
       retries: 5
     networks:
       - interviewer-network

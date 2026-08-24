@@ -30,6 +30,13 @@ from app.schemas.interview import (
     InterviewSessionResponse,
     InterviewSessionSummary,
 )
+from app.services.interview_status import (
+    SESSION_STATUS_AI_REPORTED,
+    SESSION_STATUS_EVALUATING,
+    SESSION_STATUS_RUNNING,
+    assert_session_can_continue,
+    normalize_session_status,
+)
 from app.workflow.interview import InterviewWorkflow
 
 
@@ -80,7 +87,7 @@ class InterviewPersistenceService:
             job_title=response.job_title,
             difficulty=response.difficulty,
             candidate_summary=response.candidate_summary,
-            status="running" if business_context.invite else "questions_generated",
+            status=SESSION_STATUS_RUNNING,
         )
         db.add(session)
         db.flush()
@@ -116,6 +123,7 @@ class InterviewPersistenceService:
         session = self._get_user_session(db, current_user, request.session_id)
         if session is None:
             return None
+        assert_session_can_continue(session.status)
 
         question_text = next(
             (
@@ -140,9 +148,20 @@ class InterviewPersistenceService:
                 workflow_trace=response.workflow_trace,
             )
         )
-        session.status = "follow_up_generated"
+        session.status = SESSION_STATUS_RUNNING
         db.commit()
         return response
+
+    def mark_session_evaluating(self, db: Session, current_user: User, session_id: str) -> InterviewSession | None:
+        """把当前用户的面试会话标记为 AI 评分中。"""
+
+        session = self._get_user_session(db, current_user, session_id)
+        if session is None:
+            return None
+        assert_session_can_continue(session.status)
+        session.status = SESSION_STATUS_EVALUATING
+        db.commit()
+        return session
 
     def evaluate_answers(
         self,
@@ -155,6 +174,7 @@ class InterviewPersistenceService:
         session = self._get_user_session(db, current_user, request.session_id)
         if session is None:
             return None
+        assert_session_can_continue(session.status)
 
         report = self.workflow.evaluate_answers(
             request,
@@ -184,7 +204,7 @@ class InterviewPersistenceService:
                 learning_suggestions=report.learning_suggestions,
             )
         )
-        session.status = "evaluated"
+        session.status = SESSION_STATUS_AI_REPORTED
         db.commit()
         return report
 
@@ -465,7 +485,7 @@ class InterviewPersistenceService:
             session_id=session.session_id,
             job_title=session.job_title,
             difficulty=session.difficulty,
-            status=session.status,
+            status=normalize_session_status(session.status),
             candidate_summary=session.candidate_summary,
             question_count=len(session.questions),
             answer_count=len(session.answers),

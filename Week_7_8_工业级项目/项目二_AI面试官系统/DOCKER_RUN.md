@@ -20,13 +20,13 @@ docker compose up --build -d
 
 ```powershell
 docker compose ps
-docker compose logs -f app
+docker compose logs -f app worker
 ```
 
 只看最近日志：
 
 ```powershell
-docker compose logs --tail=100 app
+docker compose logs --tail=100 app worker
 ```
 
 ## 3. 通义千问配置
@@ -46,7 +46,7 @@ docker compose up --build -d
 
 ## 4. Redis 配置
 
-Docker Compose 默认注入 `REDIS_URL=redis://redis:6379/0`，用于 `/health/ready` Redis 就绪检查、流式追问 Token 服务端短期存储、JWT 黑名单、登录失败限流、高成本面试接口限流、面试回答草稿和异步任务状态。
+Docker Compose 默认注入 `REDIS_URL=redis://redis:6379/0`，用于 `/health/ready` Redis 就绪检查、流式追问 Token 服务端短期存储、JWT 黑名单、登录失败限流、高成本面试接口限流、面试回答草稿、异步任务状态和 `interview.questions`/`interview.follow_up`/`interview.report` 队列；`/health/ready` 也会返回 `interview_worker_queue` 与 `llm_gateway` 状态，用于确认 worker 队列和 mock/Qwen provider 配置是否就绪。
 
 默认接口限流配置：
 
@@ -61,10 +61,12 @@ docker compose up --build -d
 ```powershell
 $env:INTERVIEW_DRAFT_TTL_SECONDS="86400"
 $env:INTERVIEW_TASK_TTL_SECONDS="86400"
+$env:INTERVIEW_TASK_QUEUE_BACKEND="redis"
+$env:INTERVIEW_TASK_QUEUE_NAME="queue:interview_tasks"
 docker compose up --build -d
 ```
 
-本地非 Docker 启动时如果不配置 `REDIS_URL`，系统会保留进程内回退模式，方便开发和测试；企业部署建议始终配置 Redis。
+Docker Compose 会启动 `worker` 服务并执行 `python -m app.workers.interview_worker` 消费 Redis 队列。本地非 Docker 启动时如果不配置 `REDIS_URL` 或保持 `INTERVIEW_TASK_QUEUE_BACKEND=background`，系统会保留进程内 BackgroundTasks 回退模式，方便开发和测试；企业部署建议始终配置 Redis 队列和独立 worker。
 
 ## 5. 停止和重启
 

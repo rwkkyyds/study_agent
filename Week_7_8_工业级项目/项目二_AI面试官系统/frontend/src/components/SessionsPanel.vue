@@ -18,6 +18,11 @@ defineEmits(["refresh", "open-session"]);
 
 function statusType(status) {
   return {
+    running: "primary",
+    evaluating: "warning",
+    ai_reported: "success",
+    reviewed: "success",
+    archived: "info",
     questions_generated: "info",
     follow_up_generated: "warning",
     evaluated: "success",
@@ -26,6 +31,11 @@ function statusType(status) {
 
 function statusLabel(status) {
   return {
+    running: "面试中",
+    evaluating: "AI 评分中",
+    ai_reported: "AI 报告完成",
+    reviewed: "人工复核完成",
+    archived: "已归档",
     questions_generated: "已生成题目",
     follow_up_generated: "已生成追问",
     evaluated: "已评分",

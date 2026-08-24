@@ -8,6 +8,7 @@ export default defineConfig({
     proxy: {
       "/auth": "http://127.0.0.1:8100",
       "/interviews": "http://127.0.0.1:8100",
+      "/hiring": "http://127.0.0.1:8100",
       "/question-bank": "http://127.0.0.1:8100",
       "/resumes": "http://127.0.0.1:8100",
       "/health": "http://127.0.0.1:8100",

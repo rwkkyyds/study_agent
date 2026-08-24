@@ -183,3 +183,43 @@
 - 新增/更新测试覆盖候选人报告脱敏、后台完整报告权限、异步评分任务轮询和任务用户隔离
 - 验证 `python -m pytest tests/test_interview_workflow.py tests/test_interview_sessions_api.py tests/test_hiring_domain.py tests/test_interview_graph_workflow.py -q` 通过：23 passed
 - 全量验证 `python -m pytest -q` 通过：57 passed；`docker compose config` 通过；`python -m alembic heads` 显示 `202608230002 (head)`
+
+### 阶段八：P0 收尾与 P1 LLM Gateway 第一批落地
+
+- 前端新增 Vue Router，入口拆为 `/web/candidate` 候选人门户和 `/web/console` HR/面试官后台，并保留 `/web/?invite_token=<token>` 旧入口兼容
+- 前端新增 Pinia `auth/session/task` stores：token、会话详情、回答、SSE 事件、异步评分任务状态从 `App.vue` 下沉到 store
+- HR 后台打开已评分会话时会调用 `GET /hiring/interview-sessions/{session_id}/report`，优先展示 `visibility=internal` 的完整维度分和风险标记
+- 候选人面试室和后台工作台的“生成评分报告”改为调用 `/interviews/evaluate/async` 并轮询 `/interviews/tasks/{task_id}`，前端正式消费 3.4 异步评分任务能力
+- 新增 `app/services/llm_gateway.py`，把 Qwen provider 的路由、HTTP_PROXY 环境代理继承、超时、重试、Prompt 版本标识和 JSON 对象校验集中到 LLM Gateway
+- `app/services/qwen_llm.py` 改为通过 LLM Gateway 调用 DashScope OpenAI 兼容接口，保留原有失败回退工作流
+- `/health/ready` 新增 `llm_gateway` 依赖状态，同时保留原 Qwen 配置状态，方便部署前检查 AI provider
+- FastAPI 静态托管新增 `/web/candidate` 直达入口，Vite 代理新增 `/hiring`，构建产物已更新并清理旧 JS hash
+- 新增/更新测试覆盖候选人入口托管、前端资产中的内部报告接口/异步任务接口、LLM Gateway JSON 校验和健康检查
+- 验证 `npm run build` 通过；`python -m pytest tests/test_web_assets.py tests/test_llm_gateway.py tests/test_qwen_llm.py tests/test_health.py tests/test_interview_sessions_api.py tests/test_hiring_domain.py -q` 通过：26 passed
+- 全量验证 `python -m pytest -q` 通过：61 passed；`docker compose config` 通过；`python -m alembic heads` 显示 `202608230002 (head)`
+- 剩余风险：追问生成/通知发送仍未进入异步队列；业务状态机仍需从旧 `questions_generated/evaluated` 逐步统一；RAG 仍是本地关键词检索；Element Plus/ECharts 构建包仍超过 500kB，需要后续路由懒加载/manualChunks
+
+### 阶段八：3.4 Redis 队列 Worker 第一批落地
+
+- 新增配置 `INTERVIEW_TASK_QUEUE_BACKEND`、`INTERVIEW_TASK_QUEUE_NAME`、`INTERVIEW_WORKER_POLL_TIMEOUT_SECONDS`，默认本地 `background`，Docker Compose 使用 `redis`
+- `POST /interviews/questions/async` 和 `POST /interviews/evaluate/async` 在 Redis 队列模式下分别把 `interview.questions`、`interview.report` 任务投递到 `queue:interview_tasks`，未启用 Redis 队列时继续使用 FastAPI BackgroundTasks 回退
+- 新增 `app/services/interview_task_runner.py`，API 回退任务和独立 Worker 共用同一套评分执行逻辑，避免异步路径分叉
+- 新增 `app/workers/interview_worker.py`，支持 `python -m app.workers.interview_worker` 持续消费 Redis 队列并更新 `task:{task_id}` 状态
+- Docker Compose 新增 `worker` 服务，复用 app 镜像，依赖 app/postgres/redis 健康状态后启动，并加入 Redis ping healthcheck
+- `/health/ready` 新增 `interview_worker_queue` 依赖状态：本地未启用时显示 `inline_fallback`，Docker Redis 队列模式显示 `enabled`
+- 新增测试覆盖题目生成/评分任务的 Redis 队列投递、独立 worker `run_once` 消费、任务状态从 `queued` 到 `succeeded`、候选人报告脱敏结果保持不变
+- 验证 `python -m pytest tests/test_interview_sessions_api.py tests/test_health.py -q` 通过：11 passed；`python -m pytest tests/test_web_assets.py tests/test_llm_gateway.py tests/test_qwen_llm.py -q` 通过：10 passed
+- 全量验证 `python -m pytest -q` 通过：62 passed；`docker compose config` 通过并包含 `worker` 服务；`python -m alembic heads` 显示 `202608230002 (head)`
+
+### 阶段八：P0 状态机收尾与 P1 追问异步化落地
+
+- 新增 `app/services/interview_status.py`，集中定义阶段八面试状态机，并兼容映射历史 `questions_generated/follow_up_generated/evaluated`
+- 新增 Alembic 迁移 `202608250001_normalize_interview_session_statuses.py`，把历史会话状态迁移为 `running` / `ai_reported`
+- 同步面试服务状态流转：题目生成和追问保持 `running`，评分入队标记 `evaluating`，评分完成标记 `ai_reported`
+- 3.4 异步任务补齐 `interview.follow_up`：新增 `/interviews/follow-up/async`，BackgroundTasks 回退和 Redis 独立 worker 共用 `run_generate_follow_up_task`
+- 前端 `taskStore` 新增追问异步任务创建/轮询，HR 工作台默认使用异步追问，并保留 SSE 预览入口
+- README、Docker 说明和企业级升级方案同步更新：队列范围扩展为 `interview.questions` / `interview.follow_up` / `interview.report`
+- 新增/更新测试覆盖 P0 状态机、追问异步 BackgroundTasks、追问 Redis worker、前端构建资产中的 `/interviews/follow-up/async`
+- 验证 `python -m pytest tests/test_interview_sessions_api.py tests/test_interview_workflow.py tests/test_interview_graph_workflow.py tests/test_interview_streaming.py -q` 通过：30 passed；`python -m pytest tests/test_web_assets.py -q` 通过：4 passed
+- 全量验证 `python -m pytest -q` 通过：66 passed；`docker compose config` 通过；`python -m alembic heads` 显示 `202608250001 (head)`；`npm run build` 通过，仍保留 Vite 大 chunk 警告
+- 剩余风险：通知发送、失败重试/死信、多模型成本统计、真实 RAG/Rerank、Prompt 评估集和生产观测仍待后续 P1/P2 阶段补齐；Element Plus/ECharts bundle 仍超过 500kB，需要后续拆包

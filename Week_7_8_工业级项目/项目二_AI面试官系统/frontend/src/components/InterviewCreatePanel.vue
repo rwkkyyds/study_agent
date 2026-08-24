@@ -1,6 +1,6 @@
 <script setup>
 import { reactive, ref } from "vue";
-import { apiRequest } from "../api/client";
+import { useTaskStore } from "../stores/taskStore";
 
 const props = defineProps({
   token: {
@@ -11,6 +11,7 @@ const props = defineProps({
 
 const emit = defineEmits(["generated", "notice"]);
 const busy = ref(false);
+const taskStore = useTaskStore();
 const form = reactive({
   jobTitle: "AI 应用开发工程师",
   difficulty: "mid",
@@ -25,16 +26,12 @@ async function generateQuestions() {
   }
   busy.value = true;
   try {
-    const data = await apiRequest(
-      "/interviews/questions",
+    const data = await taskStore.generateQuestionsAsync(
       {
-        method: "POST",
-        body: JSON.stringify({
-          resume_text: form.resumeText.trim(),
-          job_title: form.jobTitle.trim(),
-          difficulty: form.difficulty,
-          question_count: Number(form.questionCount),
-        }),
+        resume_text: form.resumeText.trim(),
+        job_title: form.jobTitle.trim(),
+        difficulty: form.difficulty,
+        question_count: Number(form.questionCount),
       },
       props.token,
     );
@@ -101,7 +98,7 @@ async function generateQuestions() {
           <span>后续列表、看板和报告都从数据库聚合。</span>
         </div>
         <el-button :loading="busy" size="large" type="primary" @click="generateQuestions">
-          生成面试题
+          {{ busy ? `异步生成中 · ${taskStore.activeTask?.progress || 0}%` : "生成面试题" }}
         </el-button>
       </div>
     </el-card>

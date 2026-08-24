@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { apiRequest } from "../api/client";
+import { useTaskStore } from "../stores/taskStore";
 
 const props = defineProps({
   inviteToken: { type: String, default: "" },
@@ -11,6 +12,7 @@ const emit = defineEmits(["generated", "login-required", "clear-invite", "logout
 const loading = ref(false);
 const busy = ref(false);
 const resumeLoading = ref(false);
+const taskStore = useTaskStore();
 const invite = ref(null);
 const existingSessionId = ref("");
 const form = reactive({
@@ -92,16 +94,12 @@ async function startFromInvite() {
 
   busy.value = true;
   try {
-    const data = await apiRequest(
-      "/interviews/questions",
+    const data = await taskStore.generateQuestionsAsync(
       {
-        method: "POST",
-        body: JSON.stringify({
-          invite_token: props.inviteToken,
-          resume_text: form.resumeText.trim(),
-          difficulty: form.difficulty,
-          question_count: Number(form.questionCount),
-        }),
+        invite_token: props.inviteToken,
+        resume_text: form.resumeText.trim(),
+        difficulty: form.difficulty,
+        question_count: Number(form.questionCount),
       },
       props.token,
     );
@@ -229,7 +227,7 @@ onMounted(fetchInvite);
               }}
             </span>
             <el-button :loading="busy || resumeLoading" class="candidate-primary-button" size="large" @click="startFromInvite">
-              {{ canResumeInvite ? "继续上次面试" : token ? "确认并开始面试" : "登录后开始" }}
+              {{ busy ? `异步生成中 · ${taskStore.activeTask?.progress || 0}%` : canResumeInvite ? "继续上次面试" : token ? "确认并开始面试" : "登录后开始" }}
               <el-icon><Right /></el-icon>
             </el-button>
           </div>

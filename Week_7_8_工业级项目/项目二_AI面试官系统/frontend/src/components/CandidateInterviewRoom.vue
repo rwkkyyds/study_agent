@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { apiRequest } from "../api/client";
+import { useTaskStore } from "../stores/taskStore";
 
 const props = defineProps({
   token: { type: String, default: "" },
@@ -19,6 +20,7 @@ const followUpReady = ref(false);
 const timeLeft = ref(45 * 60);
 const draftsLoaded = ref(false);
 const draftStatus = ref("idle");
+const taskStore = useTaskStore();
 let source = null;
 let timer = null;
 let draftTimer = null;
@@ -264,15 +266,11 @@ async function finishInterview() {
 
   evaluating.value = true;
   try {
-    const report = await apiRequest(
-      "/interviews/evaluate",
+    const report = await taskStore.evaluateAsync(
       {
-        method: "POST",
-        body: JSON.stringify({
-          session_id: props.session.session_id,
-          job_title: props.session.job_title,
-          answers: answerList,
-        }),
+        session_id: props.session.session_id,
+        job_title: props.session.job_title,
+        answers: answerList,
       },
       props.token,
     );
@@ -429,7 +427,7 @@ onBeforeUnmount(() => {
             size="large"
             @click="continueInterview"
           >
-            {{ isLastQuestion ? "完成面试并查看报告" : "继续下一题" }}
+            {{ isLastQuestion && evaluating ? `异步评分中 · ${taskStore.activeTask?.progress || 0}%` : isLastQuestion ? "完成面试并查看报告" : "继续下一题" }}
             <el-icon><ArrowRight /></el-icon>
           </el-button>
         </div>

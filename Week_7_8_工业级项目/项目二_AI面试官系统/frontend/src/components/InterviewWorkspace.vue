@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { apiRequest } from "../api/client";
 import ReportPanel from "./ReportPanel.vue";
+import { useTaskStore } from "../stores/taskStore";
 
 const props = defineProps({
   token: {
@@ -41,6 +42,7 @@ const emit = defineEmits([
 const answerText = ref("");
 const streaming = ref(false);
 const evaluating = ref(false);
+const taskStore = useTaskStore();
 let source = null;
 
 const selectedQuestion = computed(() => {
@@ -85,6 +87,39 @@ function selectQuestion(questionId) {
 
 function eventText(event) {
   return event.data.question || event.data.node || event.data.message || "完成";
+}
+
+async function generateFollowUpAsync() {
+  if (!props.token || !props.session || !selectedQuestion.value) {
+    emit("notice", "请先登录并选择面试题", "warning");
+    return;
+  }
+  saveAnswer(false);
+  const answer = answerText.value.trim();
+  if (!answer) {
+    emit("notice", "请先输入当前题回答", "warning");
+    return;
+  }
+
+  streaming.value = true;
+  try {
+    const data = await taskStore.generateFollowUpAsync(
+      {
+        session_id: props.session.session_id,
+        question_id: selectedQuestion.value.id,
+        answer,
+      },
+      props.token,
+    );
+    data.workflow_trace.forEach((node) => emit("stream-event", { name: "trace", data: { node } }));
+    data.follow_up_questions.forEach((question) => emit("stream-event", { name: "follow_up", data: { question } }));
+    emit("stream-event", { name: "done", data });
+    emit("notice", "追问已生成", "success");
+  } catch (error) {
+    emit("notice", error.message, "error");
+  } finally {
+    streaming.value = false;
+  }
 }
 
 async function streamFollowUp() {
@@ -158,15 +193,11 @@ async function evaluateAnswers() {
 
   evaluating.value = true;
   try {
-    const data = await apiRequest(
-      "/interviews/evaluate",
+    const data = await taskStore.evaluateAsync(
       {
-        method: "POST",
-        body: JSON.stringify({
-          session_id: props.session.session_id,
-          job_title: props.session.job_title,
-          answers: answerList.value,
-        }),
+        session_id: props.session.session_id,
+        job_title: props.session.job_title,
+        answers: answerList.value,
       },
       props.token,
     );
@@ -229,7 +260,10 @@ onBeforeUnmount(closeStream);
                 <span>候选人回答</span>
                 <el-button-group>
                   <el-button @click="saveAnswer()">保存</el-button>
-                  <el-button :loading="streaming" type="primary" @click="streamFollowUp">SSE 追问</el-button>
+                  <el-button :loading="streaming" type="primary" @click="generateFollowUpAsync">
+                    {{ streaming ? `异步追问中 · ${taskStore.activeTask?.progress || 0}%` : "异步追问" }}
+                  </el-button>
+                  <el-button :disabled="streaming" @click="streamFollowUp">SSE 预览</el-button>
                 </el-button-group>
               </div>
             </template>
@@ -251,7 +285,7 @@ onBeforeUnmount(closeStream);
             </div>
 
             <el-button :loading="evaluating" class="evaluate-button" size="large" type="success" @click="evaluateAnswers">
-              生成评分报告
+              {{ evaluating ? `异步评分中 · ${taskStore.activeTask?.progress || 0}%` : "生成评分报告" }}
             </el-button>
           </el-card>
         </el-col>

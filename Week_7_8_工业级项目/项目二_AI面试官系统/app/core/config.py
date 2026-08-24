@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     api_rate_limit_window_seconds: int = 60
     interview_draft_ttl_seconds: int = 24 * 60 * 60
     interview_task_ttl_seconds: int = 24 * 60 * 60
+    interview_task_queue_backend: str = "background"
+    interview_task_queue_name: str = "queue:interview_tasks"
+    interview_worker_poll_timeout_seconds: int = 5
     max_upload_bytes: int = 5 * 1024 * 1024
     llm_provider: str = "mock"
     dashscope_api_key: str | None = None

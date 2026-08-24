@@ -36,12 +36,11 @@ from app.services.interview_drafts import (
 )
 from app.services.interview_tasks import (
     create_interview_task,
+    enqueue_interview_task_job,
     get_interview_task,
-    mark_interview_task_failed,
-    mark_interview_task_running,
-    mark_interview_task_succeeded,
     task_response,
 )
+from app.services.interview_task_runner import run_evaluate_report_task, run_generate_follow_up_task, run_generate_questions_task
 from app.services.interviews import InterviewPersistenceService
 from app.services.rate_limit import require_api_rate_limit
 
@@ -162,6 +161,32 @@ def generate_questions(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
 
+@router.post("/questions/async", response_model=InterviewTaskStatusResponse, status_code=status.HTTP_202_ACCEPTED)
+def enqueue_generate_questions(
+    request: InterviewQuestionRequest,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(require_api_rate_limit("interviews.questions_async")),
+    db: Session = Depends(get_db),
+) -> InterviewTaskStatusResponse:
+    """提交面试题生成任务，返回可轮询的任务状态。"""
+
+    task = create_interview_task(
+        task_type="interview.questions",
+        session_id="",
+        user_id=current_user.id,
+        message="面试题生成任务已入队",
+    )
+    queued = enqueue_interview_task_job(
+        task_id=task.task_id,
+        task_type="interview.questions",
+        user_id=current_user.id,
+        request=request,
+    )
+    if not queued:
+        background_tasks.add_task(run_generate_questions_task, task.task_id, current_user.id, request, db)
+    return task
+
+
 @router.post("/follow-up", response_model=InterviewFollowUpResponse)
 def generate_follow_up(
     request: InterviewFollowUpRequest,
@@ -177,6 +202,33 @@ def generate_follow_up(
     if response is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="面试会话不存在")
     return response
+
+
+@router.post("/follow-up/async", response_model=InterviewTaskStatusResponse, status_code=status.HTTP_202_ACCEPTED)
+def enqueue_generate_follow_up(
+    request: InterviewFollowUpRequest,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(require_api_rate_limit("interviews.follow_up_async")),
+    db: Session = Depends(get_db),
+) -> InterviewTaskStatusResponse:
+    """提交追问生成任务，返回可轮询的任务状态。"""
+
+    _require_owned_question(db=db, current_user=current_user, session_id=request.session_id, question_id=request.question_id)
+    task = create_interview_task(
+        task_type="interview.follow_up",
+        session_id=request.session_id,
+        user_id=current_user.id,
+        message="追问生成任务已入队",
+    )
+    queued = enqueue_interview_task_job(
+        task_id=task.task_id,
+        task_type="interview.follow_up",
+        user_id=current_user.id,
+        request=request,
+    )
+    if not queued:
+        background_tasks.add_task(run_generate_follow_up_task, task.task_id, current_user.id, request, db)
+    return task
 
 
 @router.post("/follow-up/stream-token", response_model=FollowUpStreamTokenResponse)
@@ -255,6 +307,10 @@ def enqueue_evaluate_answers(
     session = interview_service.get_owned_session(db=db, current_user=current_user, session_id=request.session_id)
     if session is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="面试会话不存在")
+    try:
+        interview_service.mark_session_evaluating(db=db, current_user=current_user, session_id=request.session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
     task = create_interview_task(
         task_type="interview.report",
@@ -262,7 +318,14 @@ def enqueue_evaluate_answers(
         user_id=current_user.id,
         message="报告评分任务已入队",
     )
-    background_tasks.add_task(_run_evaluate_report_task, task.task_id, current_user.id, request, db)
+    queued = enqueue_interview_task_job(
+        task_id=task.task_id,
+        task_type="interview.report",
+        user_id=current_user.id,
+        request=request,
+    )
+    if not queued:
+        background_tasks.add_task(run_evaluate_report_task, task.task_id, current_user.id, request, db)
     return task
 
 
@@ -295,32 +358,6 @@ def evaluate_answers(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="面试会话不存在")
     clear_interview_drafts(session_id=request.session_id)
     return interview_service.candidate_report_view(report)
-
-
-def _run_evaluate_report_task(task_id: str, user_id: int, request: AnswerSubmissionRequest, db: Session) -> None:
-    """本地过渡 Worker：执行报告评分并更新任务状态。"""
-
-    try:
-        mark_interview_task_running(task_id, message="正在生成评分报告")
-        current_user = db.get(User, user_id)
-        if current_user is None:
-            mark_interview_task_failed(task_id, error="用户不存在")
-            return
-
-        report = interview_service.evaluate_answers(db=db, current_user=current_user, request=request)
-        if report is None:
-            mark_interview_task_failed(task_id, error="面试会话不存在")
-            return
-
-        clear_interview_drafts(session_id=request.session_id)
-        candidate_report = interview_service.candidate_report_view(report)
-        mark_interview_task_succeeded(
-            task_id,
-            result=candidate_report.model_dump(mode="json"),
-            message="评分报告已生成",
-        )
-    except Exception as exc:  # pragma: no cover - 兜底防止后台任务吞错
-        mark_interview_task_failed(task_id, error=str(exc))
 
 
 def _sse_event(event: str, data: dict) -> str:

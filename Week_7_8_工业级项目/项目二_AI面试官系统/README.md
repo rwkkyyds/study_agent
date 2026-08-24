@@ -16,9 +16,9 @@
 
 阶段六已完成：Element Plus + ECharts 企业级 HR/面试官后台 + 真实历史面试 API + FastAPI /web 托管 + SSE 流式追问 + 短期 stream token，并保留可选通义千问增强。
 
-当前推进阶段七 Docker 部署：新增 `Dockerfile`、`docker-compose.yml`、`.dockerignore` 和 Docker 运行说明。Docker 默认使用 `app + postgres + redis` 三个服务，前端构建产物仍由 FastAPI 在 `/web/` 托管。
+当前推进阶段七 Docker 部署：新增 `Dockerfile`、`docker-compose.yml`、`.dockerignore` 和 Docker 运行说明。Docker 默认使用 `app + worker + postgres + redis` 四个服务，前端构建产物仍由 FastAPI 在 `/web/` 托管。
 
-阶段八已补充企业级高可用升级方案：围绕 PostgreSQL、Redis、MQ、Docker Desktop、Clash Verge 7897 代理环境，规划前台候选人端、后台 HR/面试官端、异步 AI 工作流、真实 RAG、LLM Gateway、监控告警和生产化验收标准；其中阶段二认证层已先接入 refresh token、logout 黑名单、登录失败限流、接口限流和审计日志，3.2 面试业务域已落地岗位/候选人/批次/邀请/评分标准/人工复核/通知日志，并已接通候选人邀请入口和 rubric 权重评分。
+阶段八已补充企业级高可用升级方案：围绕 PostgreSQL、Redis、MQ、Docker Desktop、Clash Verge 7897 代理环境，规划前台候选人端、后台 HR/面试官端、异步 AI 工作流、真实 RAG、LLM Gateway、监控告警和生产化验收标准；其中认证安全、Redis 基础设施、3.2 面试业务域、候选人邀请入口、rubric 权重评分、报告权限分层、Vue Router/Pinia 前后台入口拆分、Redis 队列 + 独立 worker 题目生成/评分任务和 LLM Gateway 第一批能力已落地。
 
 默认仍使用确定性规则工作流保证测试稳定；当显式设置 `LLM_PROVIDER=qwen` 且提供 `DASHSCOPE_API_KEY` 时，题目生成和追问会调用通义千问增强，失败时自动回落到本地规则链路。
 
@@ -57,13 +57,13 @@ PowerShell:
 - 认证接口：`POST /auth/register`、`POST /auth/login`、`POST /auth/refresh`、`POST /auth/logout`、`GET /auth/me`
 - 简历接口：`POST /resumes/parse`、`POST /resumes/upload`、`GET /resumes/{profile_id}`，需要 `Authorization: Bearer <token>`
 - 题库接口：`POST /question-bank/search`，需要 `Authorization: Bearer <token>`
-- 面试接口：`GET /interviews/sessions`、`GET /interviews/sessions/{session_id}`、`POST /interviews/questions`、`POST /interviews/follow-up`、`POST /interviews/evaluate`、`POST /interviews/evaluate/async`、`GET /interviews/tasks/{task_id}`，需要 `Authorization: Bearer <token>`；`POST /interviews/questions` 支持传入 `invite_token`，自动绑定岗位、候选人、批次和评分标准；候选人接口返回脱敏报告
+- 面试接口：`GET /interviews/sessions`、`GET /interviews/sessions/{session_id}`、`POST /interviews/questions`、`POST /interviews/questions/async`、`POST /interviews/follow-up`、`POST /interviews/follow-up/async`、`POST /interviews/evaluate`、`POST /interviews/evaluate/async`、`GET /interviews/tasks/{task_id}`，需要 `Authorization: Bearer <token>`；`POST /interviews/questions` 支持传入 `invite_token`，自动绑定岗位、候选人、批次和评分标准；前端题目生成、追问生成和评分入口默认走异步任务轮询；候选人接口返回脱敏报告
 - 面试草稿接口：`GET /interviews/sessions/{session_id}/drafts`、`PUT /interviews/sessions/{session_id}/drafts`、`DELETE /interviews/sessions/{session_id}/drafts/{question_id}`、`DELETE /interviews/sessions/{session_id}/drafts`
 - 招聘业务域接口：`POST/GET /hiring/jobs`、`POST/GET /hiring/candidates`、`POST/GET /hiring/batches`、`POST/GET /hiring/invites`、`GET /hiring/invites/{invite_token}`、`POST/GET /hiring/rubrics`、`POST/GET /hiring/manual-reviews`、`GET /hiring/interview-sessions/{session_id}/report`、`GET /hiring/notification-logs`
-- 候选人邀请入口：访问 `/web/?invite_token=<token>` 可查看邀请详情、登录候选人账号并启动绑定邀请的面试
+- 候选人邀请入口：访问 `/web/candidate?invite_token=<token>` 或兼容旧入口 `/web/?invite_token=<token>` 可查看邀请详情、登录候选人账号并启动绑定邀请的面试；后台入口为 `/web/console`
 - 流式追问：`POST /interviews/follow-up/stream-token` 需要登录，`GET /interviews/follow-up/stream?token=...` 返回 SSE
-- Redis：配置 `REDIS_URL` 后，支持流式追问短 Token 服务端存储、JWT 黑名单、登录失败限流、高成本面试接口限流、24 小时面试草稿和异步任务状态；未配置时保持本地开发回退
-- 可选 Qwen 增强：`LLM_PROVIDER=qwen` + `DASHSCOPE_API_KEY`，健康检查会在 `/health/ready` 返回 Qwen 配置状态
+- Redis：配置 `REDIS_URL` 后，支持流式追问短 Token 服务端存储、JWT 黑名单、登录失败限流、高成本面试接口限流、24 小时面试草稿、异步任务状态和 `interview.questions`/`interview.follow_up`/`interview.report` 队列；未配置时保持本地 BackgroundTasks 回退
+- 可选 Qwen 增强：`LLM_PROVIDER=qwen` + `DASHSCOPE_API_KEY`，调用会先进入 LLM Gateway 统一处理 provider、超时、重试和 JSON 校验，健康检查会在 `/health/ready` 返回 `llm_gateway` 与 Qwen 配置状态
 
 ## Docker 启动
 
@@ -72,7 +72,7 @@ PowerShell:
     cd "C:\Users\admin\Desktop\agent_study\Week_7_8_工业级项目\项目二_AI面试官系统"
     docker compose up --build -d
     docker compose ps
-    docker compose logs -f app
+    docker compose logs -f app worker
 
 访问：
 
@@ -120,7 +120,5 @@ PowerShell:
 - 阶段四：LangGraph 面试工作流，支持题目生成、追问、评分
 - 阶段五：RAG 接入，基于简历项目和岗位知识库生成针对性问题
 - 阶段六：Element Plus + ECharts 企业级 HR 后台、真实历史面试 API、FastAPI 静态托管、短期 stream token、SSE 流式追问、可选通义千问增强
-- 阶段七：Docker Compose、本地部署、PostgreSQL/Redis 持久化和容器就绪检查
-- 阶段八：企业级高可用升级方案，已落地认证安全、Redis 基础设施、接口限流、3.2 招聘业务域模型/API、邀请启动面试绑定链路、rubric 权重评分、报告权限分层、Redis 面试草稿/断点续面和 3.4 异步评分任务状态基础能力，后续继续推进后台 HR/面试官端、MQ 异步化、真实 RAG、LLM Gateway、监控告警和可落地验收标准
-
-
+- 阶段七：Docker Compose、本地部署、app/worker/PostgreSQL/Redis 服务编排、持久化和容器就绪检查
+- 阶段八：企业级高可用升级方案，已落地认证安全、Redis 基础设施、接口限流、3.2 招聘业务域模型/API、邀请启动面试绑定链路、rubric 权重评分、报告权限分层、Redis 面试草稿/断点续面、Vue Router/Pinia 前后台拆分、HR 完整报告接入、业务状态机收口、Redis 队列 + 独立 worker 版 3.4 题目生成/追问/评分异步任务和 LLM Gateway 第一批能力；后续继续推进通知异步化、真实 RAG、成本统计、监控告警和可落地验收标准

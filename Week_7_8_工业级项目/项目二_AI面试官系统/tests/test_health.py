@@ -27,6 +27,10 @@ def test_ready_ok(monkeypatch, client):
     assert data["status"] == "ready"
     assert dependencies["database"]["status"] == "ready"
     assert dependencies["redis"]["status"] == "disabled"
+    assert dependencies["interview_worker_queue"]["status"] == "inline_fallback"
+    assert dependencies["interview_worker_queue"]["backend"] == "background"
+    assert dependencies["llm_gateway"]["status"] == "disabled"
+    assert dependencies["llm_gateway"]["provider"] == "mock"
     assert dependencies["qwen"]["name"] == "qwen"
 
 

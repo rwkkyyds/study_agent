@@ -160,7 +160,7 @@ Redis 不要只作为“缓存”口号，要绑定具体场景：
 
 ### 3.4 MQ 和异步任务
 
-当前题目生成、追问、评分都在请求内同步执行。企业级系统应改为异步：
+当前追问仍在请求/流式链路内执行；题目生成和评分报告已先接入异步任务，企业级系统应继续把高耗时 AI 链路统一异步化：
 
     API 接收请求
     -> 写入 interview_tasks
@@ -181,7 +181,7 @@ Redis 不要只作为“缓存”口号，要绑定具体场景：
 | 报告评分 | interview.report | 多模型/多维评分耗时 |
 | 通知发送 | notification.send | 邮件短信不能阻塞主流程 |
 
-本机有 MQ 时，推荐 RabbitMQ + Celery；如果想少引依赖，可以先用 Redis Queue/RQ 过渡。当前已先落地过渡版：`POST /interviews/evaluate/async` 创建 `interview.report` 任务，`GET /interviews/tasks/{task_id}` 轮询 Redis/本地任务状态，本地后台 Worker 负责执行评分并写回报告；真正 MQ 投递、独立 worker 进程和失败重试仍是下一步。
+本机有 MQ 时，推荐 RabbitMQ + Celery；如果想少引依赖，可以先用 Redis Queue/RQ/Redis List 过渡。当前已落地 Redis 队列 + 独立 Worker 第一批：`POST /interviews/questions/async` 创建 `interview.questions` 任务，`POST /interviews/follow-up/async` 创建 `interview.follow_up` 任务，`POST /interviews/evaluate/async` 创建 `interview.report` 任务，Redis 模式下都投递到 `queue:interview_tasks`，`python -m app.workers.interview_worker` 独立消费并写回任务状态；未配置 Redis 队列时保留 FastAPI BackgroundTasks 回退。候选人面试室和 HR 工作台已改为消费题目生成/追问生成/评分异步任务。通知发送和失败重试仍是下一步。
 
 ### 3.5 LLM Gateway
 
@@ -203,6 +203,8 @@ Redis 不要只作为“缓存”口号，要绑定具体场景：
 - 代理配置：支持 HTTP_PROXY=http://127.0.0.1:7897。
 - Prompt 版本化：prompt_key + version。
 - 输出 JSON Schema 校验：失败自动修复或回退规则链路。
+
+当前已完成第一批落地：新增 `app/services/llm_gateway.py`，Qwen 调用通过 Gateway 统一处理 provider 路由、环境代理继承、超时、重试、Prompt 版本标识和 JSON 对象校验；`/health/ready` 已返回 `llm_gateway` 状态。多模型 registry、成本统计、熔断和评估集仍待后续阶段。
 - 调用日志：模型、tokens、耗时、错误、成本。
 - 熔断降级：供应商失败时切 mock/rule fallback。
 
@@ -283,13 +285,13 @@ Redis 不要只作为“缓存”口号，要绑定具体场景：
 | 追问流式展示 | SSE/WebSocket 统一事件协议 |
 | 提交后不可篡改 | 会话状态机：created/running/submitted/reviewed |
 
-当前前台已完成第一批落地：邀请落地页、候选人登录后回到邀请页、基于 `invite_token` 启动绑定岗位/批次/评分标准的面试、面试间回答草稿自动保存和邀请会话继续入口。后续仍需补设备检查、完成页和候选人历史页。
+当前前台已完成第一批落地：邀请落地页、候选人登录后回到邀请页、基于 `invite_token` 启动绑定岗位/批次/评分标准的面试、面试间回答草稿自动保存和邀请会话继续入口；入口已拆为 `/web/candidate` 与 `/web/console`，旧 `/web/?invite_token=<token>` 仍兼容。后续仍需补设备检查、完成页和候选人历史页。
 
 后续风险补充：
 
-- 前端暂未引入 Vue Router/Pinia，候选人端和后台端仍在同一个 `App.vue` 内轻量分支。
+- 前端已引入 Vue Router/Pinia，但还只是第一批拆分，候选人历史、岗位、批次等后续页面还需要继续沉淀到独立 store。
 - 邀请异常态只有基础提示，过期邀请、已使用邀请仍需要独立体验。
-- 候选人版/HR 版报告已完成基础权限分层；后续仍需把前端 HR 控制台切到后台完整报告接口。
+- 候选人版/HR 版报告已完成基础权限分层；HR 控制台打开已评分会话时已接入后台完整报告接口。
 - 面试草稿已支持 Redis 和本地回退，但未配置 Redis 的多进程部署无法共享本地草稿。
 - Vite 构建包受 Element Plus/ECharts 影响超过 500kB，后续拆路由时一并处理 code splitting。
 
@@ -372,7 +374,7 @@ Redis 不要只作为“缓存”口号，要绑定具体场景：
 
 | 当前文件/组件 | 现状 | 企业级风险 | 改造建议 |
 | --- | --- | --- | --- |
-| frontend/src/App.vue | 同时负责登录态、导航、会话列表、当前会话、SSE 事件、报告状态 | 状态继续膨胀后难测试、难复用、前台后台边界不清 | 拆成 router + stores + layouts，把业务状态放进 Pinia |
+| frontend/src/App.vue | 已缩减为 `RouterView` 容器，入口逻辑下沉到 `views/` 和 Pinia stores | 布局仍未进一步拆成 candidate/console layout 包，后续页面多时仍会膨胀 | 继续把岗位、候选人、批次、报告中心拆成独立路由页面 |
 | CandidateInterviewRoom.vue | 已有候选人面试室、计时、逐题回答、EventSource 追问 | 缺断线续面、草稿持久化、面试状态锁定 | 增加草稿 API、重连策略、提交后只读态 |
 | DashboardPanel.vue | 已有真实会话聚合和 ECharts 图表 | 指标偏少，不能支撑 HR 管理决策 | 增加岗位维度、批次维度、通过率、异常任务、LLM 成本 |
 | SessionsPanel.vue | 已能查看历史会话 | 缺筛选、分页、批次、候选人、人工复核入口 | 后端补分页筛选 API，前端补高级筛选和复核动作 |
@@ -381,10 +383,10 @@ Redis 不要只作为“缓存”口号，要绑定具体场景：
 
 前端配合后端升级时，优先不要一次性重写 UI。推荐顺序是：
 
-1. 先引入 Vue Router，把 /candidate 和 /console 两套入口拆清楚。
-2. 再引入 Pinia，把 auth、session、task、job、candidate 独立成 store。
+1. Vue Router 已引入，`/candidate` 和 `/console` 两套入口已拆清楚。
+2. Pinia 已引入，`auth/session/task` 已先落地；`job/candidate/batch` store 等待后台页面扩展时补齐。
 3. 然后补候选人邀请流和 HR 岗位/候选人/批次页面。
-4. 最后接入 Redis/MQ 异步任务状态，把“生成中、排队中、失败可重试”做成统一体验。
+4. 题目生成、追问生成和评分任务状态已先接入前端；后续继续统一通知等任务体验。
 
 ### 5.4 前后台角色边界
 
@@ -407,13 +409,15 @@ Redis 不要只作为“缓存”口号，要绑定具体场景：
 
     $env:DATABASE_URL="postgresql+psycopg://interviewer_user:interviewer_password@127.0.0.1:5432/interviewer_db"
     $env:REDIS_URL="redis://127.0.0.1:6379/0"
-    $env:AMQP_URL="amqp://guest:guest@127.0.0.1:5672//"
+    $env:INTERVIEW_TASK_QUEUE_BACKEND="redis"
+    $env:INTERVIEW_TASK_QUEUE_NAME="queue:interview_tasks"
     $env:HTTP_PROXY="http://127.0.0.1:7897"
     $env:HTTPS_PROXY="http://127.0.0.1:7897"
     $env:LLM_PROVIDER="qwen"
     $env:DASHSCOPE_API_KEY="<your-key>"
     python -m alembic upgrade head
     uvicorn app.main:app --reload --port 8100
+    python -m app.workers.interview_worker
 
 ### 6.2 Docker Compose 模式
 
@@ -423,15 +427,14 @@ Redis 不要只作为“缓存”口号，要绑定具体场景：
     worker
     postgres
     redis
-    rabbitmq
     prometheus
     grafana
 
 Compose 需要新增：
 
-- redis 服务和 healthcheck。
-- rabbitmq 服务和管理端口。
-- worker 服务，复用 app 镜像，启动 Celery/RQ worker。
+- redis 服务和 healthcheck。（已完成）
+- worker 服务，复用 app 镜像，启动 Redis 队列 worker。（已完成第一批）
+- rabbitmq 服务和管理端口可作为后续替换 Redis 队列的增强项。
 - prometheus 和 grafana 可作为后续阶段。
 - app 环境变量注入 HTTP_PROXY/HTTPS_PROXY。
 - 容器内访问宿主机 Clash Verge 代理，通常用 host.docker.internal:7897。
@@ -440,22 +443,22 @@ Compose 需要新增：
 
     HTTP_PROXY=http://host.docker.internal:7897
     HTTPS_PROXY=http://host.docker.internal:7897
-    NO_PROXY=localhost,127.0.0.1,postgres,redis,rabbitmq
+    NO_PROXY=localhost,127.0.0.1,postgres,redis
 
 ## 7. 推荐实施优先级
 
 ### P0：先把系统变成真实可用
 
 1. 补岗位、候选人、邀请、评分标准模型。
-2. 前端拆出候选人端和后台端路由。
+2. 前端拆出候选人端和后台端路由。（已完成第一批）
 3. Redis 接入：限流、短 token、草稿保存。
 4. PostgreSQL 作为默认开发数据库，不再依赖 SQLite。
-5. 完善业务状态机：created/running/submitted/evaluating/reviewed/archived。
+5. 完善业务状态机：running/evaluating/ai_reported/reviewed/archived 已收口，历史 `questions_generated/follow_up_generated/evaluated` 通过迁移和兼容映射归一。
 
 ### P1：把 AI 链路变成稳定可控
 
-1. LLM Gateway：多模型、代理、超时、重试、JSON 校验。
-2. MQ/Worker：题目生成、追问、报告评分异步化。
+1. LLM Gateway：多模型、代理、超时、重试、JSON 校验。（已完成 Qwen 第一批 Gateway，待多模型/成本/熔断）
+2. MQ/Worker：题目生成、追问、报告评分异步化。（题目生成、追问和报告评分已完成 Redis 队列 + 独立 Worker 第一批，通知/失败重试仍待异步化）
 3. RAG 服务：pgvector/Milvus、Rerank、引用来源。
 4. Prompt 版本管理和评估集。
 5. 成本和耗时统计。
@@ -515,11 +518,10 @@ Compose 需要新增：
 最建议先做企业级最小闭环：
 
 1. 新增岗位、候选人、邀请、评分标准四类模型和 API。
-2. 前端引入 Vue Router，拆分候选人门户和 HR 后台。
+2. 前端引入 Vue Router，拆分候选人门户和 HR 后台。（已完成第一批）
 3. 接入 Redis，先实现限流、短 token、草稿保存。
-4. 接入 MQ/Worker，把题目生成和评分报告异步化。
-5. 把 Qwen 客户端抽成 LLM Gateway，并补代理配置说明。
+4. 接入 MQ/Worker，把题目生成、追问生成和评分报告异步化。（已接入 Redis 队列 + 独立 Worker，通知发送和失败重试仍待）
+5. 把 Qwen 客户端抽成 LLM Gateway，并补代理配置说明。（已完成第一批）
 6. 增加 PostgreSQL + Redis + MQ 的 ready 检查和测试。
 
 这样改完后，项目就不只是 AI 面试 demo，而是具备企业级系统骨架的真实 AI 招聘/测评平台。
-

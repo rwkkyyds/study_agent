@@ -26,7 +26,7 @@ class InterviewSession(Base):
     job_title: Mapped[str] = mapped_column(String(120), nullable=False)
     difficulty: Mapped[str] = mapped_column(String(20), nullable=False)
     candidate_summary: Mapped[str] = mapped_column(Text, nullable=False)
-    status: Mapped[str] = mapped_column(String(30), default="questions_generated", nullable=False)
+    status: Mapped[str] = mapped_column(String(30), default="running", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

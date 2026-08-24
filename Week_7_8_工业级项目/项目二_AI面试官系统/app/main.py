@@ -42,6 +42,13 @@ def create_app() -> FastAPI:
     app.include_router(interviews_router)
     app.include_router(hiring_router)
     if WEB_DIR.exists():
+        @app.get("/web/candidate", include_in_schema=False)
+        @app.get("/web/candidate/", include_in_schema=False)
+        def serve_candidate_portal() -> FileResponse:
+            """让生产环境支持候选人门户的直达入口。"""
+
+            return FileResponse(WEB_DIR / "index.html")
+
         @app.get("/web/console", include_in_schema=False)
         @app.get("/web/console/", include_in_schema=False)
         def serve_console() -> FileResponse:

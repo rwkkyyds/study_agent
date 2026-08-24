@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-import json
-import re
-from typing import Any
-
 import httpx
+from typing import Any
 
 from app.core.config import Settings, get_settings
 from app.schemas.interview import InterviewQuestion
+from app.services.llm_gateway import LLMGateway, clean_string_list
+
+QUESTION_PROMPT_VERSION = "interview.questions.qwen.v1"
+FOLLOW_UP_PROMPT_VERSION = "interview.follow_up.qwen.v1"
 
 
 QUESTION_SYSTEM_PROMPT = """
@@ -34,13 +35,14 @@ class QwenInterviewLLM:
         self,
         settings: Settings | None = None,
         transport: httpx.BaseTransport | None = None,
+        gateway: LLMGateway | None = None,
     ) -> None:
         self.settings = settings or get_settings()
-        self._transport = transport
+        self.gateway = gateway or LLMGateway(settings=self.settings, transport=transport)
 
     @property
     def configured(self) -> bool:
-        return self.settings.llm_provider == "qwen" and bool(self.settings.dashscope_api_key)
+        return self.settings.llm_provider == "qwen" and self.gateway.is_configured("qwen")
 
     def generate_questions(
         self,
@@ -62,7 +64,7 @@ class QwenInterviewLLM:
         questions: list[InterviewQuestion] = []
         for index, item in enumerate(data.get("questions", []), start=1):
             question = str(item.get("question", "")).strip()
-            points = _clean_string_list(item.get("expected_points", []))[:5]
+            points = clean_string_list(item.get("expected_points", []))[:5]
             if not question or not points:
                 continue
             questions.append(
@@ -91,40 +93,20 @@ class QwenInterviewLLM:
             "answer": answer[:2500],
         }
         data = self._chat_json(FOLLOW_UP_SYSTEM_PROMPT, payload)
-        return _clean_string_list(data.get("follow_up_questions", []))[:2]
+        return clean_string_list(data.get("follow_up_questions", []))[:2]
 
     def _chat_json(self, system_prompt: str, payload: dict[str, Any]) -> dict[str, Any]:
-        if not self.configured:
-            raise RuntimeError("Qwen LLM 未启用或缺少 DASHSCOPE_API_KEY")
-
-        request_body = {
-            "model": self.settings.qwen_model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
-            ],
-            "temperature": 0.2,
-        }
-        url = f"{self.settings.dashscope_base_url.rstrip('/')}/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {self.settings.dashscope_api_key}",
-            "Content-Type": "application/json",
-        }
-
-        last_error: Exception | None = None
-        for _ in range(max(1, self.settings.llm_max_retries + 1)):
-            try:
-                with httpx.Client(timeout=self.settings.llm_timeout_seconds, transport=self._transport) as client:
-                    response = client.post(url, headers=headers, json=request_body)
-                response.raise_for_status()
-                body = response.json()
-                content = body["choices"][0]["message"]["content"]
-                return _loads_json_object(content)
-            except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as exc:
-                last_error = exc
-
-        error_name = last_error.__class__.__name__ if last_error else "UnknownError"
-        raise RuntimeError(f"Qwen LLM 调用失败: {error_name}")
+        prompt_version = (
+            QUESTION_PROMPT_VERSION
+            if system_prompt == QUESTION_SYSTEM_PROMPT
+            else FOLLOW_UP_PROMPT_VERSION
+        )
+        return self.gateway.chat_json(
+            system_prompt=system_prompt,
+            payload=payload,
+            prompt_version=prompt_version,
+            provider="qwen",
+        ).data
 
 
 def build_interview_llm(settings: Settings | None = None) -> QwenInterviewLLM | None:
@@ -132,28 +114,3 @@ def build_interview_llm(settings: Settings | None = None) -> QwenInterviewLLM | 
     if resolved.llm_provider != "qwen":
         return None
     return QwenInterviewLLM(resolved)
-
-
-def _loads_json_object(content: str) -> dict[str, Any]:
-    text = content.strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
-        text = re.sub(r"\s*```$", "", text)
-
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", text, flags=re.DOTALL)
-        if not match:
-            raise
-        data = json.loads(match.group(0))
-
-    if not isinstance(data, dict):
-        raise ValueError("Qwen LLM 返回内容不是 JSON 对象")
-    return data
-
-
-def _clean_string_list(value: Any) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    return [str(item).strip() for item in value if str(item).strip()]

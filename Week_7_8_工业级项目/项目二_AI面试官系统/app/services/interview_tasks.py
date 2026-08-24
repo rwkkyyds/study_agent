@@ -8,6 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import HTTPException, status
+from pydantic import BaseModel
 
 from app.core.config import get_settings
 from app.schemas.interview import InterviewTaskStatusResponse
@@ -59,21 +60,23 @@ def mark_interview_task_succeeded(
     task_id: str,
     *,
     result: dict[str, Any] | None = None,
+    session_id: str | None = None,
     message: str = "任务已完成",
 ) -> None:
     """把任务标记为 succeeded，并保存可轮询结果。"""
 
     payload = _require_task(task_id)
-    payload.update(
-        {
-            "status": "succeeded",
-            "progress": 100,
-            "message": message,
-            "error": None,
-            "result": result,
-            "updated_at": _utc_now().isoformat(),
-        }
-    )
+    updates = {
+        "status": "succeeded",
+        "progress": 100,
+        "message": message,
+        "error": None,
+        "result": result,
+        "updated_at": _utc_now().isoformat(),
+    }
+    if session_id is not None:
+        updates["session_id"] = session_id
+    payload.update(updates)
     _save_task(payload)
 
 
@@ -108,6 +111,78 @@ def get_interview_task(task_id: str) -> dict[str, Any] | None:
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Redis 不可用，无法读取任务状态") from exc
 
     return _local_tasks.get(task_id)
+
+
+def should_use_interview_worker_queue() -> bool:
+    """是否应把任务投递到独立 Redis Worker 队列。"""
+
+    settings = get_settings()
+    return settings.interview_task_queue_backend == "redis" and redis_client.redis_is_configured(settings)
+
+
+def enqueue_interview_task_job(
+    *,
+    task_id: str,
+    task_type: str,
+    user_id: int,
+    request: BaseModel,
+) -> bool:
+    """把面试任务投递到 Redis 队列；未启用队列时返回 False。"""
+
+    settings = get_settings()
+    if not should_use_interview_worker_queue():
+        return False
+
+    payload = {
+        "task_id": task_id,
+        "task_type": task_type,
+        "user_id": user_id,
+        "request": request.model_dump(mode="json"),
+    }
+    try:
+        client = redis_client.get_redis_client(settings)
+        if client is None:
+            raise redis_client.RedisUnavailableError("redis client is not configured")
+        client.rpush(settings.interview_task_queue_name, json.dumps(payload, ensure_ascii=False))
+        return True
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Redis 不可用，无法投递面试任务") from exc
+
+
+def dequeue_interview_task_job(timeout_seconds: int | None = None) -> dict[str, Any] | None:
+    """从 Redis 队列取出一个 Worker 任务。"""
+
+    settings = get_settings()
+    try:
+        client = redis_client.get_redis_client(settings)
+        if client is None:
+            raise redis_client.RedisUnavailableError("redis client is not configured")
+        timeout = settings.interview_worker_poll_timeout_seconds if timeout_seconds is None else timeout_seconds
+        item = client.blpop(settings.interview_task_queue_name, timeout=timeout)
+        if item is None:
+            return None
+        _, raw_payload = item
+        return json.loads(raw_payload)
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Redis 不可用，无法消费面试任务") from exc
+
+
+def interview_worker_queue_status() -> dict[str, Any]:
+    """返回异步任务队列配置状态，供 ready 检查展示。"""
+
+    settings = get_settings()
+    backend = settings.interview_task_queue_backend
+    status_text = "inline_fallback"
+    if backend == "redis":
+        status_text = "enabled" if redis_client.redis_is_configured(settings) else "misconfigured"
+    elif backend != "background":
+        status_text = "unsupported_backend"
+    return {
+        "name": "interview_worker_queue",
+        "status": status_text,
+        "backend": backend,
+        "queue": settings.interview_task_queue_name if backend == "redis" else None,
+    }
 
 
 def task_response(payload: dict[str, Any]) -> InterviewTaskStatusResponse:

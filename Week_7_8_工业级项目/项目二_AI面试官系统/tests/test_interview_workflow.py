@@ -69,7 +69,7 @@ def test_evaluate_answers_returns_report_and_persists(client, auth_headers, db_s
     assert data["follow_up_questions"]
 
     session = db_session.query(InterviewSession).filter_by(session_id=generated["session_id"]).one()
-    assert session.status == "evaluated"
+    assert session.status == "ai_reported"
     assert db_session.query(InterviewQuestion).filter_by(session_db_id=session.id).count() == 5
     assert db_session.query(InterviewAnswer).filter_by(session_db_id=session.id).count() == 1
     saved_report = db_session.query(InterviewReport).filter_by(session_db_id=session.id).one()
