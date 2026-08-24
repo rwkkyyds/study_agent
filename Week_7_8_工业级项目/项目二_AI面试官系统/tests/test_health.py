@@ -1,5 +1,6 @@
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.core.config import get_settings
 from app.db.session import get_db
 from app.main import app
 
@@ -12,14 +13,21 @@ def test_health_ok(client):
     assert response.json()["service"] == "ai-interviewer-system"
 
 
-def test_ready_ok(client):
-    response = client.get("/health/ready")
+def test_ready_ok(monkeypatch, client):
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    get_settings.cache_clear()
+    try:
+        response = client.get("/health/ready")
+    finally:
+        get_settings.cache_clear()
 
     assert response.status_code == 200
-    assert response.json()["status"] == "ready"
-    assert response.json()["dependencies"][0]["name"] == "database"
-    assert response.json()["dependencies"][0]["status"] == "ready"
-    assert response.json()["dependencies"][1]["name"] == "qwen"
+    data = response.json()
+    dependencies = {dependency["name"]: dependency for dependency in data["dependencies"]}
+    assert data["status"] == "ready"
+    assert dependencies["database"]["status"] == "ready"
+    assert dependencies["redis"]["status"] == "disabled"
+    assert dependencies["qwen"]["name"] == "qwen"
 
 
 def test_ready_returns_503_when_database_unavailable(client):
@@ -36,3 +44,21 @@ def test_ready_returns_503_when_database_unavailable(client):
 
     assert response.status_code == 503
     assert response.json()["detail"]["dependency"] == "database"
+
+
+def test_ready_returns_503_when_redis_unavailable(monkeypatch, client):
+    class BrokenRedis:
+        def ping(self):
+            raise RuntimeError("redis down")
+
+    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
+    get_settings.cache_clear()
+    monkeypatch.setattr("app.api.health.redis_client.get_redis_client", lambda settings=None: BrokenRedis())
+
+    try:
+        response = client.get("/health/ready")
+    finally:
+        get_settings.cache_clear()
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["dependency"] == "redis"

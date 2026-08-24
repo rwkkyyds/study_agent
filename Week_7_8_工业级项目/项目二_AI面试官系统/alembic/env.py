@@ -7,7 +7,28 @@ from sqlalchemy import engine_from_config, pool
 
 from app.core.config import get_settings
 from app.db.session import Base
-from app.models import InterviewAnswer, InterviewFollowUp, InterviewQuestion, InterviewReport, InterviewSession, ResumeProfile, User
+from app.models import (
+    AuditLog,
+    CandidateProfile,
+    EvaluationRubric,
+    InterviewBatch,
+    InterviewAnswer,
+    InterviewFollowUp,
+    InterviewInvite,
+    InterviewQuestion,
+    InterviewReport,
+    InterviewSession,
+    Job,
+    ManualReview,
+    NotificationLog,
+    Organization,
+    Permission,
+    ResumeProfile,
+    Role,
+    RolePermission,
+    User,
+    UserRole,
+)
 
 config = context.config
 if config.config_file_name is not None:

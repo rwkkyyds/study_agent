@@ -19,6 +19,16 @@
 - 新增认证和面试持久化测试
 - 验证 `python -m pytest -q` 通过
 
+
+### 阶段二：企业级认证权限补强
+
+- 按阶段八方案补齐 access token + refresh token 生命周期，新增 `/auth/refresh` 和 `/auth/logout`
+- 新增 JWT 黑名单和登录失败限流，Redis 配置时走 Redis，未配置时保留本地测试回退
+- 新增 `organizations`、`roles`、`permissions`、`user_roles`、`role_permissions`、`audit_logs` 作为 RBAC 和审计底座
+- 新增 `app/services/audit.py`，注册、登录、刷新、退出、管理员创建用户写入审计日志
+- 新增 Alembic 迁移 `202608230001_enterprise_auth_phase_two.py`
+- 新增 refresh 轮换、logout 黑名单、登录限流和审计测试
+- 验证 `python -m pytest -q` 通过：49 passed
 ### 阶段三：完成
 
 - 新增 `/resumes/parse`，支持 text/markdown 简历正文解析
@@ -86,8 +96,90 @@
 - `/health/ready` 新增数据库 `SELECT 1` 检查，数据库不可用时返回 503；Qwen 继续作为可选依赖展示配置状态
 - `requirements.txt` 新增 `psycopg[binary]`，支持 Docker 默认 PostgreSQL 连接
 - 新增多阶段 `Dockerfile`：先构建 Vue 前端，再安装 Python 依赖，最终镜像执行 `alembic upgrade head` 和 `uvicorn`
-- 新增 `docker-compose.yml`：包含 `app` 与 `postgres` 两个服务，宿主机映射 `8100:8000`，PostgreSQL 仅 Docker 内网访问并使用 volume 持久化
-- 新增 `.dockerignore`、`.env.example` 和 `DOCKER_RUN.md`，环境模板只包含占位符，不写入真实通义千问 Key
+- 新增 `docker-compose.yml`：包含 `app`、`postgres` 与 `redis` 三个服务，宿主机映射 `8100:8000`，PostgreSQL 和 Redis 仅 Docker 内网访问并使用 volume 持久化
+- 新增 `.dockerignore` 和 `DOCKER_RUN.md`，运行说明只包含占位符，不写入真实通义千问 Key
 - 新增配置、健康检查和上传大小限制测试
 
+### 阶段八：企业级基础设施第一批落地
 
+- 新增 Redis 配置项与客户端封装，未配置 `REDIS_URL` 时保持本地开发和测试回退
+- `/health/ready` 纳入 Redis 就绪检查：未配置显示 disabled，已配置但不可用返回 503
+- 流式追问 Token 在 Redis 模式下改为 opaque id，候选人回答只存服务端短期 TTL 数据并一次性消费
+- `docker-compose.yml` 接入 `redis:7-alpine` 服务、healthcheck、volume 和 app 依赖
+- 新增 Redis Token 隐私/一次性消费测试和 Redis ready 失败测试
+- 验证 `python -m pytest -q` 通过：49 passed
+
+### 阶段八：3.2 面试业务域建模启动
+
+- 完善部分完成项：新增多角色权限依赖 `require_any_role`，支持 HR/Admin/Interviewer 按业务域访问后台能力
+- 新增通用 API 限流服务，Redis 配置时使用 `rate:{user_id}:{route}:{minute}`，未配置 Redis 时保留进程内回退
+- 高成本面试接口 `/interviews/questions`、`/interviews/follow-up`、`/interviews/follow-up/stream-token`、`/interviews/evaluate` 接入接口限流
+- 新增 `jobs`、`candidate_profiles`、`interview_batches`、`interview_invites`、`evaluation_rubrics`、`manual_reviews`、`notification_logs` 企业招聘业务域模型
+- `interview_sessions` 新增可选业务外键：`job_id`、`candidate_profile_id`、`interview_batch_id`、`invite_id`、`rubric_id`，为候选人邀请流和人工复核流转预留关联
+- 新增 `/hiring/*` API：岗位、候选人、批次、邀请、评分标准、人工复核、通知日志的最小可用后台接口
+- 新增 Alembic 迁移 `202608230002_hiring_domain_models.py`
+- 新增 `tests/test_hiring_domain.py`，覆盖 HR 业务域创建、候选人权限拒绝、公开邀请查询、人工复核和接口限流
+- 验证 `python -m pytest -q` 通过：53 passed
+
+### 阶段八：邀请启动面试链路打通
+
+- `/hiring/invites/{invite_token}` 响应新增岗位名称、岗位级别、候选人姓名和脱敏邮箱，支撑候选人邀请落地页展示
+- `/interviews/questions` 新增 `invite_token`、`job_id`、`candidate_profile_id`、`interview_batch_id`、`rubric_id` 可选入参
+- 候选人通过 `invite_token` 启动面试时，系统自动带出岗位标题、候选人档案、招聘批次和该岗位最新启用评分标准
+- 新生成的 `interview_sessions` 会写入 `job_id`、`candidate_profile_id`、`interview_batch_id`、`invite_id`、`rubric_id`
+- 邀请启动后自动把邀请标记为 `accepted`，记录 `used_at`，并把未绑定用户的候选人档案绑定到当前 candidate 用户
+- 防止重复消费邀请：同一邀请已创建会话后，再次生成题目返回 409
+- 新增测试覆盖候选人邀请启动面试、会话外键绑定、邀请状态更新、候选人绑定和重复邀请拦截
+- 验证 `python -m pytest -q` 通过：54 passed
+
+### 阶段八：前台候选人邀请入口落地
+
+- 新增 `frontend/src/components/CandidateInviteLanding.vue`，支持候选人通过 `/web/?invite_token=<token>` 进入邀请落地页
+- 邀请落地页展示岗位名称、岗位级别、候选人姓名、脱敏邮箱、有效期和邀请状态
+- 未登录候选人点击开始时进入登录页，登录后自动回到邀请页继续启动面试
+- 已登录候选人可在邀请页填写简历/项目经历、选择难度和题数，并通过 `invite_token` 调用 `/interviews/questions`
+- 保留原自由练习入口，候选人可从邀请模式切回普通 `CandidateSetup`
+- 更新 Vite 构建产物 `app/web/`，FastAPI `/web/` 已能托管新邀请入口
+- 更新 `tests/test_web_assets.py`，验证构建产物包含邀请入口和 `.candidate-invite` 样式
+- 验证 `npm run build` 通过
+- 验证 `python -m pytest -q` 通过：54 passed
+
+### 阶段八：风险后续补充记录
+
+- 前端仍是轻量单页状态管理，尚未引入 Vue Router/Pinia；页面继续增多时需要按 `/candidate` 与 `/console` 拆路由
+- 邀请异常态目前有基础提示，后续需要补独立的过期页、已使用页等专门页面
+- 评分标准已绑定到 `interview_sessions.rubric_id` 并补齐报告权重计算；候选人版/HR 版报告已完成基础权限分层
+- 前端构建包因 Element Plus/ECharts 仍超过 500kB，后续需要路由拆包或手动 chunk
+
+### 阶段八：Redis 面试草稿与断点续面基础能力
+
+- 新增 `app/services/interview_drafts.py`，Redis 配置时使用 `draft:{session_id}:{question_id}` 保存草稿，TTL 默认 24 小时
+- 未配置 Redis 时保留进程内草稿回退，方便本地开发和测试；企业部署仍建议始终配置 Redis
+- 新增草稿接口：`GET /interviews/sessions/{session_id}/drafts`、`PUT /interviews/sessions/{session_id}/drafts`、`DELETE /interviews/sessions/{session_id}/drafts/{question_id}`、`DELETE /interviews/sessions/{session_id}/drafts`
+- 所有草稿接口都会校验当前用户会话归属，并校验 `question_id` 属于该会话
+- `/interviews/evaluate` 生成正式评分报告后自动清理该会话草稿，避免已提交答案和草稿状态冲突
+- 候选人面试间 `CandidateInterviewRoom.vue` 新增草稿恢复、防抖自动保存和保存状态提示
+- 邀请页 `CandidateInviteLanding.vue` 能识别已接受邀请对应的历史会话，并提供“继续上次面试”入口
+- `docker-compose.yml` 新增 `INTERVIEW_DRAFT_TTL_SECONDS` 配置，默认 `86400`
+- 更新 Vite 构建产物 `app/web/`，并清理旧 hash 静态文件
+- 新增/更新测试覆盖草稿保存、恢复、删除、越权隔离、评分后清理和前端构建产物包含草稿能力
+- 验证 `python -m pytest tests/test_interview_sessions_api.py tests/test_web_assets.py -q` 通过：8 passed
+
+### 阶段八：Rubric 权重评分落地
+
+- `InterviewWorkflow.evaluate_answers` 支持接收岗位评分标准维度和权重，未绑定 rubric 时保持原 35%/25%/25%/15% 默认评分逻辑
+- `InterviewPersistenceService.evaluate_answers` 会读取会话绑定的 `evaluation_rubrics`，把 `dimensions` 与 `weights` 传入报告生成流程
+- 报告维度会按 rubric 展示名称返回，并把中文岗位维度映射到底层 `technical`、`structure`、`project`、`risk` 四类确定性分数
+- 已覆盖“绑定 rubric 后报告总分按权重变化、报告详情持久化同分数”的回归测试
+- 验证 `python -m pytest tests/test_hiring_domain.py tests/test_interview_workflow.py tests/test_interview_graph_workflow.py tests/test_interview_sessions_api.py -q` 通过：22 passed
+- 全量验证 `python -m pytest -q` 通过：56 passed；`docker compose config` 通过；`python -m alembic heads` 显示 `202608230002 (head)`
+### 阶段八：报告权限分层与 3.4 异步评分任务启动
+
+- 候选人侧 `/interviews/evaluate` 和 `/interviews/sessions/{session_id}` 返回 `visibility=candidate` 的脱敏报告，保留总分、等级、优势、追问和学习建议，隐藏内部维度分和风险标记
+- 后台侧新增 `GET /hiring/interview-sessions/{session_id}/report`，仅 `interviewer/hr/admin` 可查看 `visibility=internal` 的完整评分维度和风险标记
+- 新增 `app/services/interview_tasks.py`，任务状态使用 Redis `task:{task_id}`，未配置 Redis 时走本地进程回退
+- 新增 `POST /interviews/evaluate/async` 和 `GET /interviews/tasks/{task_id}`，先以 FastAPI BackgroundTasks 作为本地过渡 Worker 执行 `interview.report` 评分任务
+- `docker-compose.yml` 和运行说明新增 `INTERVIEW_TASK_TTL_SECONDS=86400`
+- 新增/更新测试覆盖候选人报告脱敏、后台完整报告权限、异步评分任务轮询和任务用户隔离
+- 验证 `python -m pytest tests/test_interview_workflow.py tests/test_interview_sessions_api.py tests/test_hiring_domain.py tests/test_interview_graph_workflow.py -q` 通过：23 passed
+- 全量验证 `python -m pytest -q` 通过：57 passed；`docker compose config` 通过；`python -m alembic heads` 显示 `202608230002 (head)`

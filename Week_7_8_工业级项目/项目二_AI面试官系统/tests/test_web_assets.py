@@ -28,4 +28,8 @@ def test_web_vite_assets_are_served(client):
     assert any("EventSource" in response.text for response in responses)
     assert any("AI 面试官" in response.text for response in responses)
     assert any(".candidate-room" in response.text for response in responses)
+    assert any("Interview invitation" in response.text for response in responses)
+    assert any(".candidate-invite" in response.text for response in responses)
+    assert any("草稿自动保存" in response.text for response in responses)
+    assert any("继续上次面试" in response.text for response in responses)
 

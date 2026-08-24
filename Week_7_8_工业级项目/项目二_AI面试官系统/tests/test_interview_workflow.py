@@ -63,14 +63,19 @@ def test_evaluate_answers_returns_report_and_persists(client, auth_headers, db_s
     assert response.status_code == 200
     data = response.json()
     assert data["overall_score"] >= 60
-    assert len(data["dimensions"]) == 4
+    assert data["visibility"] == "candidate"
+    assert data["dimensions"] == []
+    assert data["risks"] == []
     assert data["follow_up_questions"]
 
     session = db_session.query(InterviewSession).filter_by(session_id=generated["session_id"]).one()
     assert session.status == "evaluated"
     assert db_session.query(InterviewQuestion).filter_by(session_db_id=session.id).count() == 5
     assert db_session.query(InterviewAnswer).filter_by(session_db_id=session.id).count() == 1
-    assert db_session.query(InterviewReport).filter_by(session_db_id=session.id).one().overall_score == data["overall_score"]
+    saved_report = db_session.query(InterviewReport).filter_by(session_db_id=session.id).one()
+    assert saved_report.overall_score == data["overall_score"]
+    assert len(saved_report.dimensions) == 4
+    assert saved_report.risks
 
 
 def test_evaluate_rejects_other_users_session(client, auth_headers):

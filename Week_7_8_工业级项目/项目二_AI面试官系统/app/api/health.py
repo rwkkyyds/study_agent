@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.db.session import get_db
+from app.services import redis_client
 
 router = APIRouter(tags=["health"])
 
@@ -40,6 +41,22 @@ def ready(db: Session = Depends(get_db)) -> dict:
         ) from exc
 
     dependencies.append({"name": "database", "status": "ready"})
+
+    redis_status = "disabled"
+    if redis_client.redis_is_configured(settings):
+        try:
+            client = redis_client.get_redis_client(settings)
+            if client is None:
+                raise redis_client.RedisUnavailableError("redis client is not configured")
+            client.ping()
+            redis_status = "ready"
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={"status": "unready", "dependency": "redis"},
+            ) from exc
+
+    dependencies.append({"name": "redis", "status": redis_status})
 
     qwen_status = "disabled"
     if settings.llm_provider == "qwen":

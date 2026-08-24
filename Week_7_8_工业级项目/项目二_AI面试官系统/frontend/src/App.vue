@@ -5,6 +5,7 @@ import { apiRequest, clearStoredToken, getStoredToken, storeToken } from "./api/
 import AuthPanel from "./components/AuthPanel.vue";
 import CandidateAuthPanel from "./components/CandidateAuthPanel.vue";
 import CandidateInterviewRoom from "./components/CandidateInterviewRoom.vue";
+import CandidateInviteLanding from "./components/CandidateInviteLanding.vue";
 import CandidateSetup from "./components/CandidateSetup.vue";
 import DashboardPanel from "./components/DashboardPanel.vue";
 import InterviewCreatePanel from "./components/InterviewCreatePanel.vue";
@@ -17,6 +18,9 @@ const isConsole =
   window.location.search.includes("mode=console") ||
   window.location.hash === "#console";
 const activeView = ref(isConsole ? "dashboard" : "candidate");
+const urlParams = new URLSearchParams(window.location.search);
+const inviteToken = ref(urlParams.get("invite_token") || urlParams.get("invite") || "");
+const showCandidateLogin = ref(false);
 const sessions = ref([]);
 const sessionsLoading = ref(false);
 const detailLoading = ref(false);
@@ -107,11 +111,24 @@ async function openSession(sessionId) {
 function onLoggedIn(accessToken) {
   token.value = accessToken;
   storeToken(accessToken);
+  showCandidateLogin.value = false;
   activeView.value = isConsole ? "dashboard" : "candidate";
   showNotice("登录成功");
   if (isConsole) {
     fetchSessions();
   }
+}
+
+function requireCandidateLogin() {
+  showCandidateLogin.value = true;
+  showNotice("请先登录候选人账号，登录后会回到邀请页", "info");
+}
+
+function clearInviteMode() {
+  inviteToken.value = "";
+  showCandidateLogin.value = false;
+  const nextUrl = `${window.location.pathname}${window.location.hash || ""}`;
+  window.history.replaceState({}, "", nextUrl);
 }
 
 function logout() {
@@ -176,8 +193,19 @@ onMounted(() => {
 <template>
   <template v-if="!isConsole">
     <CandidateAuthPanel
-      v-if="!token"
+      v-if="!token && (!inviteToken || showCandidateLogin)"
       @logged-in="onLoggedIn"
+      @notice="showNotice"
+    />
+    <CandidateInviteLanding
+      v-else-if="inviteToken && !currentSession"
+      :invite-token="inviteToken"
+      :token="token"
+      @generated="onQuestionsGenerated"
+      @login-required="requireCandidateLogin"
+      @clear-invite="clearInviteMode"
+      @logout="logout"
+      @open-session="openSession"
       @notice="showNotice"
     />
     <CandidateSetup

@@ -17,8 +17,11 @@ const streaming = ref(false);
 const evaluating = ref(false);
 const followUpReady = ref(false);
 const timeLeft = ref(45 * 60);
+const draftsLoaded = ref(false);
+const draftStatus = ref("idle");
 let source = null;
 let timer = null;
+let draftTimer = null;
 
 const questions = computed(() => props.session?.questions || []);
 const currentQuestion = computed(() => questions.value[questionIndex.value] || null);
@@ -31,6 +34,21 @@ const timerText = computed(() => {
   const minutes = String(Math.floor(timeLeft.value / 60)).padStart(2, "0");
   const seconds = String(timeLeft.value % 60).padStart(2, "0");
   return `${minutes}:${seconds}`;
+});
+const draftStatusText = computed(() => {
+  if (draftStatus.value === "loading") {
+    return "正在恢复草稿";
+  }
+  if (draftStatus.value === "saving") {
+    return "正在保存草稿";
+  }
+  if (draftStatus.value === "saved") {
+    return "草稿已保存";
+  }
+  if (draftStatus.value === "error") {
+    return "草稿保存失败";
+  }
+  return "草稿自动保存";
 });
 const stageItems = computed(() => {
   const stages = ["自我介绍", "项目经历", "技术深度", "问题解决", "系统设计", "场景判断", "团队协作", "反向提问"];
@@ -107,6 +125,64 @@ function closeStream() {
   if (source) {
     source.close();
     source = null;
+  }
+}
+
+async function restoreDrafts() {
+  if (!props.token || !props.session?.session_id) {
+    draftsLoaded.value = true;
+    return;
+  }
+
+  draftsLoaded.value = false;
+  draftStatus.value = "loading";
+  try {
+    const data = await apiRequest(`/interviews/sessions/${encodeURIComponent(props.session.session_id)}/drafts`, {}, props.token);
+    const restored = {};
+    data.drafts.forEach((draft) => {
+      restored[draft.question_id] = draft.answer;
+      emit("update-answer", { questionId: draft.question_id, answer: draft.answer });
+    });
+    if (currentQuestion.value && restored[currentQuestion.value.id]) {
+      answerText.value = restored[currentQuestion.value.id];
+    }
+    draftStatus.value = data.drafts.length ? "saved" : "idle";
+  } catch (error) {
+    draftStatus.value = "error";
+    emit("notice", error.message, "error");
+  } finally {
+    draftsLoaded.value = true;
+  }
+}
+
+function scheduleDraftSave() {
+  if (draftTimer) {
+    window.clearTimeout(draftTimer);
+  }
+  draftTimer = window.setTimeout(saveCurrentDraft, 650);
+}
+
+async function saveCurrentDraft() {
+  if (!props.token || !props.session?.session_id || !currentQuestion.value || props.report) {
+    return;
+  }
+
+  draftStatus.value = "saving";
+  try {
+    await apiRequest(
+      `/interviews/sessions/${encodeURIComponent(props.session.session_id)}/drafts`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          question_id: currentQuestion.value.id,
+          answer: answerText.value,
+        }),
+      },
+      props.token,
+    );
+    draftStatus.value = answerText.value.trim() ? "saved" : "idle";
+  } catch (error) {
+    draftStatus.value = "error";
   }
 }
 
@@ -201,6 +277,7 @@ async function finishInterview() {
       props.token,
     );
     emit("report-created", report);
+    draftStatus.value = "idle";
     emit("notice", "面试报告已生成");
   } catch (error) {
     emit("notice", error.message, "error");
@@ -228,9 +305,22 @@ function startTimer() {
 }
 
 watch(() => currentQuestion.value?.id, syncAnswer, { immediate: true });
-onMounted(startTimer);
+watch(answerText, () => {
+  if (!draftsLoaded.value || !currentQuestion.value || props.report) {
+    return;
+  }
+  scheduleDraftSave();
+});
+watch(() => props.session?.session_id, restoreDrafts);
+onMounted(() => {
+  startTimer();
+  restoreDrafts();
+});
 onBeforeUnmount(() => {
   closeStream();
+  if (draftTimer) {
+    window.clearTimeout(draftTimer);
+  }
   if (timer) {
     window.clearInterval(timer);
   }
@@ -306,7 +396,7 @@ onBeforeUnmount(() => {
         <div class="answer-composer">
           <div class="composer-label">
             <span>你的回答</span>
-            <span>按 Enter 发送 · Shift + Enter 换行</span>
+            <span>{{ draftStatusText }} · 按 Enter 发送</span>
           </div>
           <div class="composer-box">
             <el-input
@@ -318,7 +408,9 @@ onBeforeUnmount(() => {
               @keydown.enter.exact.prevent="submitAnswer"
             />
             <div class="composer-actions">
-              <span class="composer-tip"><el-icon><Microphone /></el-icon>语音输入即将上线</span>
+              <span :class="['composer-tip', `draft-${draftStatus}`]">
+                <el-icon><DocumentChecked /></el-icon>{{ draftStatusText }}
+              </span>
               <el-button
                 :loading="streaming"
                 class="send-answer-button"

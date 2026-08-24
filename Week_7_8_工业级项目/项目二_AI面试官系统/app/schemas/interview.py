@@ -10,7 +10,12 @@ class InterviewQuestionRequest(BaseModel):
 
     resume_text: str | None = Field(default=None, min_length=20, description="候选人简历文本")
     resume_profile_id: int | None = Field(default=None, gt=0, description="已解析候选人画像 ID")
-    job_title: str = Field(min_length=2, description="目标岗位")
+    job_title: str | None = Field(default=None, min_length=2, description="目标岗位；传入 invite_token/job_id 时可由岗位自动带出")
+    invite_token: str | None = Field(default=None, min_length=1, description="面试邀请 Token")
+    job_id: int | None = Field(default=None, gt=0, description="岗位 ID")
+    candidate_profile_id: int | None = Field(default=None, gt=0, description="候选人档案 ID")
+    interview_batch_id: int | None = Field(default=None, gt=0, description="招聘批次 ID")
+    rubric_id: int | None = Field(default=None, gt=0, description="评分标准版本 ID")
     difficulty: str = Field(default="mid", pattern="^(junior|mid|senior)$", description="难度")
     question_count: int = Field(default=5, ge=3, le=8, description="题目数量")
 
@@ -34,6 +39,11 @@ class InterviewSessionResponse(BaseModel):
     candidate_summary: str
     questions: list[InterviewQuestion]
     workflow_trace: list[str] = Field(default_factory=list)
+    job_id: int | None = None
+    candidate_profile_id: int | None = None
+    interview_batch_id: int | None = None
+    invite_id: int | None = None
+    rubric_id: int | None = None
 
 
 class InterviewAnswer(BaseModel):
@@ -81,6 +91,30 @@ class InterviewFollowUpResponse(BaseModel):
     workflow_trace: list[str] = Field(default_factory=list)
 
 
+class InterviewDraftRequest(BaseModel):
+    """保存单题回答草稿请求。"""
+
+    question_id: str = Field(min_length=1)
+    answer: str = ""
+
+
+class InterviewDraftResponse(BaseModel):
+    """单题回答草稿响应。"""
+
+    session_id: str
+    question_id: str
+    answer: str
+    expires_in: int
+
+
+class InterviewDraftListResponse(BaseModel):
+    """面试会话草稿列表响应。"""
+
+    session_id: str
+    drafts: list[InterviewDraftResponse]
+    expires_in: int
+
+
 class ScoreDimension(BaseModel):
     """评分维度。"""
 
@@ -95,12 +129,28 @@ class InterviewReportResponse(BaseModel):
     session_id: str
     overall_score: int = Field(ge=0, le=100)
     level: str
+    visibility: str = Field(default="internal", pattern="^(candidate|internal)$")
     dimensions: list[ScoreDimension]
     strengths: list[str]
     risks: list[str]
     follow_up_questions: list[str]
     learning_suggestions: list[str]
     workflow_trace: list[str] = Field(default_factory=list)
+
+
+class InterviewTaskStatusResponse(BaseModel):
+    """异步面试任务状态响应。"""
+
+    task_id: str
+    task_type: str
+    session_id: str
+    status: str = Field(pattern="^(queued|running|succeeded|failed)$")
+    progress: int = Field(ge=0, le=100)
+    message: str
+    error: str | None = None
+    result: InterviewReportResponse | None = None
+    created_at: datetime
+    updated_at: datetime
 
 
 class InterviewAnswerRecord(InterviewAnswer):
@@ -133,6 +183,11 @@ class InterviewSessionSummary(BaseModel):
     follow_up_count: int
     overall_score: int | None = None
     level: str | None = None
+    job_id: int | None = None
+    candidate_profile_id: int | None = None
+    interview_batch_id: int | None = None
+    invite_id: int | None = None
+    rubric_id: int | None = None
     created_at: datetime
     updated_at: datetime
 

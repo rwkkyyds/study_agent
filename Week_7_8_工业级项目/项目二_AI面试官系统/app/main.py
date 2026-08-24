@@ -7,8 +7,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+import app.models  # noqa: F401 - 注册全部 ORM metadata，供测试 create_all 和 Alembic 使用
 from app.api.auth import router as auth_router
 from app.api.health import router as health_router
+from app.api.hiring import router as hiring_router
 from app.api.interviews import router as interviews_router
 from app.api.question_bank import router as question_bank_router
 from app.api.resumes import router as resumes_router
@@ -38,6 +40,7 @@ def create_app() -> FastAPI:
     app.include_router(resumes_router)
     app.include_router(question_bank_router)
     app.include_router(interviews_router)
+    app.include_router(hiring_router)
     if WEB_DIR.exists():
         @app.get("/web/console", include_in_schema=False)
         @app.get("/web/console/", include_in_schema=False)

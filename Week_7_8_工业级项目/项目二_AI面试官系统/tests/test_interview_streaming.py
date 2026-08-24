@@ -1,9 +1,12 @@
 from datetime import timedelta
 
+import pytest
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.models.interview import InterviewFollowUp, InterviewSession
-from app.services.auth import create_access_token, create_follow_up_stream_token
+from app.services.auth import create_access_token, create_follow_up_stream_token, decode_follow_up_stream_token
 
 
 RESUME_TEXT = "我做过企业级智能客服 RAG 系统，使用 FastAPI、LangGraph、Milvus、Redis、PostgreSQL 和 Docker Compose。"
@@ -54,6 +57,51 @@ def test_current_user_can_create_stream_token(client, auth_headers):
     data = response.json()
     assert data["stream_token"]
     assert data["expires_in"] == 300
+
+
+def test_redis_stream_token_hides_answer_and_is_single_use(monkeypatch):
+    class FakeRedis:
+        def __init__(self):
+            self.store = {}
+            self.ttls = {}
+
+        def setex(self, key, ttl, value):
+            self.store[key] = value
+            self.ttls[key] = ttl
+
+        def getdel(self, key):
+            return self.store.pop(key, None)
+
+    fake_redis = FakeRedis()
+    answer = "这里是不能暴露在 URL Token 里的候选人敏感回答。"
+    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
+    get_settings.cache_clear()
+    monkeypatch.setattr("app.services.auth.redis_client.get_redis_client", lambda settings=None: fake_redis)
+
+    try:
+        token = create_follow_up_stream_token(
+            user_id=1,
+            session_id="session-redis",
+            question_id="q1",
+            answer=answer,
+        )
+        assert answer not in token
+        assert len(fake_redis.store) == 1
+
+        payload = decode_follow_up_stream_token(token)
+
+        assert payload["sub"] == 1
+        assert payload["session_id"] == "session-redis"
+        assert payload["question_id"] == "q1"
+        assert payload["answer"] == answer
+        assert fake_redis.store == {}
+
+        with pytest.raises(HTTPException) as exc:
+            decode_follow_up_stream_token(token)
+    finally:
+        get_settings.cache_clear()
+
+    assert exc.value.status_code == 401
 
 
 def test_other_user_cannot_create_stream_token_for_session(client, auth_headers):

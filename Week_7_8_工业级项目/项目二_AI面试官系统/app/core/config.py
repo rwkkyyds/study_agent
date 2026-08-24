@@ -25,10 +25,19 @@ class Settings(BaseSettings):
         ]
     )
     database_url: str = "sqlite:///./interviewer_dev.db"
+    redis_url: str | None = None
+    redis_socket_timeout_seconds: float = 2.0
     jwt_secret_key: str = DEFAULT_JWT_SECRET_KEY
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60
+    refresh_token_expire_minutes: int = 7 * 24 * 60
     stream_token_expire_minutes: int = 5
+    login_failure_limit: int = 5
+    login_failure_window_seconds: int = 5 * 60
+    api_rate_limit_per_minute: int = 30
+    api_rate_limit_window_seconds: int = 60
+    interview_draft_ttl_seconds: int = 24 * 60 * 60
+    interview_task_ttl_seconds: int = 24 * 60 * 60
     max_upload_bytes: int = 5 * 1024 * 1024
     llm_provider: str = "mock"
     dashscope_api_key: str | None = None

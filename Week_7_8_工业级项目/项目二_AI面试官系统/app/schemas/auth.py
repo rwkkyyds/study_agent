@@ -22,14 +22,33 @@ class AdminCreateUserRequest(BaseModel):
 
     username: str = Field(min_length=3, max_length=64)
     password: str = Field(min_length=6, max_length=128)
-    role: str = Field(default="candidate", pattern="^(candidate|admin)$")
+    role: str = Field(default="candidate", pattern="^(candidate|interviewer|hr|admin)$")
 
 
 class TokenResponse(BaseModel):
     """登录成功后的令牌响应。"""
 
     access_token: str
+    refresh_token: str
     token_type: str = "bearer"
+
+
+class RefreshTokenRequest(BaseModel):
+    """刷新 access token 请求。"""
+
+    refresh_token: str = Field(min_length=1)
+
+
+class LogoutRequest(BaseModel):
+    """退出登录请求。"""
+
+    refresh_token: str | None = None
+
+
+class MessageResponse(BaseModel):
+    """通用消息响应。"""
+
+    message: str
 
 
 class UserResponse(BaseModel):

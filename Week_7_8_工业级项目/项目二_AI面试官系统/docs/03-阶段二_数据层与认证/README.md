@@ -13,6 +13,8 @@
 - 面试过程如何保存，方便复盘？
 - 数据表结构如何被版本化管理？
 - 测试如何避免污染本地数据库？
+- Token 如何刷新、退出后如何立即失效？
+- 关键认证操作如何审计，登录失败如何限流？
 
 这一阶段的重点不是增加很多新功能，而是让已有功能具备真实系统的基本秩序。
 
@@ -20,7 +22,9 @@
 
 - 建立用户模型，支持候选人和管理员角色
 - 实现注册、登录、当前用户识别和管理员用户管理
-- 使用 JWT 保护面试接口
+- 使用 JWT access token + refresh token 保护面试接口
+- 支持退出登录后 token 黑名单失效，以及登录失败次数限制
+- 新增组织、角色、权限、用户角色和审计日志模型，作为企业级 RBAC 底座
 - 建立面试会话、题目、回答、报告数据模型
 - 让 `/interviews/questions` 生成题目后保存会话和题目快照
 - 让 `/interviews/evaluate` 校验会话归属，并保存回答和报告
@@ -32,8 +36,12 @@
 | 学习点 | 重点理解 |
 |--------|----------|
 | JWT 认证 | 后端如何识别当前请求属于哪个用户 |
+| Refresh Token | 如何让 access token 短有效，同时保持可续期登录态 |
+| Token 黑名单 | 为什么退出登录和强制下线需要服务端状态 |
 | 密码哈希 | 为什么数据库里不能保存明文密码 |
-| 角色权限 | candidate 和 admin 为什么要分开 |
+| 角色权限 | candidate/interviewer/hr/admin 为什么要分开 |
+| 审计日志 | 登录、刷新、退出和管理员创建用户为什么要留痕 |
+| 登录限流 | 如何降低暴力破解风险 |
 | 数据建模 | 一次面试为什么要拆成会话、题目、回答、报告 |
 | 持久化服务 | 为什么路由层不直接堆数据库写入逻辑 |
 | Alembic 迁移 | 数据库结构如何像代码一样被版本管理 |
@@ -43,11 +51,13 @@
 
 | 文件 | 说明 |
 |------|------|
-| `app/api/auth.py` | 注册、登录、当前用户、管理员用户接口 |
+| `app/api/auth.py` | 注册、登录、刷新、退出、当前用户、管理员用户接口 |
 | `app/api/interviews.py` | 接入当前用户和数据库会话后的面试接口 |
-| `app/services/auth.py` | 密码哈希、登录校验、JWT 创建和解析、角色校验 |
+| `app/services/auth.py` | 密码哈希、登录校验、JWT/Refresh Token 创建和解析、黑名单、限流、角色校验 |
+| `app/services/audit.py` | 关键认证和权限操作审计日志 |
 | `app/services/interviews.py` | 面试题生成和评分结果的数据库持久化 |
 | `app/models/user.py` | 用户 ORM 模型 |
+| `app/models/security.py` | 组织、角色、权限、用户角色和审计日志 ORM 模型 |
 | `app/models/interview.py` | 面试会话、题目、回答、报告 ORM 模型 |
 | `alembic/` | 数据库迁移环境和初始迁移版本 |
 | `tests/conftest.py` | 测试数据库和 TestClient 夹具 |
@@ -59,7 +69,9 @@
 | 接口 | 是否需要登录 | 用途 |
 |------|--------------|------|
 | `POST /auth/register` | 否 | 注册候选人账号 |
-| `POST /auth/login` | 否 | 登录并获取 Bearer Token |
+| `POST /auth/login` | 否 | 登录并获取 access token 和 refresh token |
+| `POST /auth/refresh` | 否 | 轮换 refresh token 并获取新的 access token |
+| `POST /auth/logout` | 是 | 退出登录，并将 access/refresh token 加入黑名单 |
 | `GET /auth/me` | 是 | 获取当前用户信息 |
 | `POST /auth/users` | 是，admin | 管理员创建用户 |
 | `GET /auth/users` | 是，admin | 管理员查看用户列表 |
@@ -72,6 +84,8 @@
 
 ```
 用户
+  ├── 审计日志
+  ├── 用户角色关系
   └── 面试会话
       ├── 题目快照
       ├── 候选人回答
@@ -85,6 +99,8 @@
 - 候选人多次练习趋势
 - 管理员查看用户面试数据
 - RAG 根据历史回答生成针对性追问
+- HR/面试官/Admin 的 RBAC 权限扩展
+- 关键操作审计和异常登录排查
 
 ## 验收标准
 
@@ -93,6 +109,11 @@
 - 题目生成后数据库中存在会话和题目快照
 - 提交回答后数据库中存在回答和报告
 - 管理员接口要求 admin 角色
+- 登录返回 access token 和 refresh token
+- refresh token 使用后轮换，旧 refresh token 不能重复使用
+- logout 后原 access token 不能继续访问接口
+- 登录失败超过阈值后返回限流错误
+- 注册、登录、刷新、退出、管理员创建用户会写入审计日志
 - Alembic 初始迁移可以创建全部数据表
 - `python -m pytest -q` 通过
 

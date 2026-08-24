@@ -19,9 +19,11 @@ QUESTION_SYSTEM_PROMPT = """
 """.strip()
 
 FOLLOW_UP_SYSTEM_PROMPT = """
-你是企业级 AI 面试官。请基于候选人回答生成最多 3 个递进追问。
+你是企业级 AI 面试官。请先判断候选人的回答是否回应了原题，再生成 0-2 个递进追问。
+如果回答明显答非所问，只生成 1 个把候选人拉回原题的追问。
+如果回答完整且有证据，只生成 1 个更深入的追问，不要为了凑数生成问题。
 只输出 JSON 对象，格式为：
-{"follow_up_questions":["追问1","追问2","追问3"]}
+{"follow_up_questions":["追问1","追问2"]}
 """.strip()
 
 
@@ -74,14 +76,22 @@ class QwenInterviewLLM:
             )
         return questions[:2]
 
-    def generate_follow_ups(self, *, job_title: str, question_id: str, answer: str) -> list[str]:
+    def generate_follow_ups(
+        self,
+        *,
+        job_title: str,
+        question_id: str,
+        answer: str,
+        question: str = "",
+    ) -> list[str]:
         payload = {
             "job_title": job_title,
             "question_id": question_id,
+            "question": question[:1000],
             "answer": answer[:2500],
         }
         data = self._chat_json(FOLLOW_UP_SYSTEM_PROMPT, payload)
-        return _clean_string_list(data.get("follow_up_questions", []))[:3]
+        return _clean_string_list(data.get("follow_up_questions", []))[:2]
 
     def _chat_json(self, system_prompt: str, payload: dict[str, Any]) -> dict[str, Any]:
         if not self.configured:
